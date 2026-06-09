@@ -22,8 +22,9 @@ if (session_status() === PHP_SESSION_NONE) session_start();
                     <?php if ($_SESSION['role'] == 'Admin'): ?>
                         <li class="nav-item"><a class="nav-link" href="<?php echo BASE_URL; ?>admin/ratecards.php">Rate Cards</a></li>
                         <li class="nav-item"><a class="nav-link" href="<?php echo BASE_URL; ?>admin/agencies.php">Agencies</a></li>
+                        <li class="nav-item"><a class="nav-link" href="<?php echo BASE_URL; ?>admin/episodes.php">Content Management</a></li>
                         <li class="nav-item"><a class="nav-link" href="<?php echo BASE_URL; ?>admin/settings.php">Settings</a></li>
-                        <li class="nav-item"><a class="nav-link" href="<?php echo BASE_URL; ?>admin/episodes.php">Episodes</a></li>
+
 
 
                     <?php endif; ?>
