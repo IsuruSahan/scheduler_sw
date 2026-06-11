@@ -35,7 +35,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
                         <li class="nav-item"><a class="nav-link" href="<?php echo BASE_URL; ?>scheduler/create.php">Create Schedule</a></li>
                     <?php endif; ?>
 
-                    <li class="nav-item"><a class="nav-link btn btn-danger btn-sm text-white" href="<?php echo BASE_URL; ?>logout.php">Logout</a></li>
+                    <li class="nav-item"><a class="nav-link btn btn-outline-danger btn-sm text-white" href="<?php echo BASE_URL; ?>logout.php">Logout</a></li>
                 <?php endif; ?>
             </ul>
         </div>

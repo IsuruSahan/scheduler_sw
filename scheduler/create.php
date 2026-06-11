@@ -39,6 +39,10 @@ $placements = $pdo->query("SELECT * FROM ad_placements ORDER BY placement_name")
                     <input type="text" name="schedule_name" class="form-control" required>
                 </div>
                 <div class="col-md-6">
+                    <label class="form-label">Reference No.</label>
+                    <input type="text" name="reference_no" class="form-control" placeholder="e.g., SW-2026-001">
+                </div>
+                <div class="col-md-6">
                     <label class="form-label">Total Budget (Rs.)</label>
                     <input type="number" name="budget" class="form-control" required>
                 </div>
@@ -68,7 +72,7 @@ $placements = $pdo->query("SELECT * FROM ad_placements ORDER BY placement_name")
 
         <table class="table table-bordered table-hover">
             <thead class="table-light">
-                <tr><th>Content (Grouped)</th><th>Platform</th><th>Placement</th><th class="custom-only" style="display:none;">Media & Reference</th><th>Action</th></tr>
+                <tr><th>Content (Grouped)</th><th>Platform</th><th>Placement</th><th>Quantity</th><th class="custom-only" style="display:none;">Media & Reference</th><th>Action</th></tr>
             </thead>
             <tbody id="items-body"></tbody>
         </table>
@@ -128,21 +132,21 @@ function addRow() {
     if (lastItem !== null) optionsHtml += '</optgroup>';
 
     row.innerHTML = `
-        <td><select name="episode_id[]" class="form-select">${optionsHtml}</select></td>
-        <td><select name="platform_id[]" class="form-select"><?php foreach($platforms as $p): ?><option value="<?php echo $p['id']; ?>"><?php echo htmlspecialchars($p['platform_name']); ?></option><?php endforeach; ?></select></td>
-        <td><select name="placement_id[]" class="form-select"><?php foreach($placements as $pl): ?><option value="<?php echo $pl['id']; ?>"><?php echo htmlspecialchars($pl['placement_name']); ?></option><?php endforeach; ?></select></td>
-        <td class="custom-only" style="display: ${mode === 'custom' ? 'table-cell' : 'none'}">
-            <div id="row_media_${rowCount}">
-                <div class="input-group mb-2">
-                    <input type="file" name="media[${rowCount}][]" class="form-control">
-                    <input type="text" name="ref[${rowCount}][]" class="form-control" placeholder="Reference">
-                    <button type="button" class="btn btn-outline-danger" onclick="this.parentElement.remove()">×</button>
-                </div>
+    <td><select name="episode_id[]" class="form-select">${optionsHtml}</select></td>
+    <td><select name="platform_id[]" class="form-select"><?php foreach($platforms as $p): ?><option value="<?php echo $p['id']; ?>"><?php echo htmlspecialchars($p['platform_name']); ?></option><?php endforeach; ?></select></td>
+    <td><select name="placement_id[]" class="form-select"><?php foreach($placements as $pl): ?><option value="<?php echo $pl['id']; ?>"><?php echo htmlspecialchars($pl['placement_name']); ?></option><?php endforeach; ?></select></td>
+    <td><input type="number" name="quantity[]" class="form-control" value="1" min="1" required></td> <td class="custom-only" style="display: ${mode === 'custom' ? 'table-cell' : 'none'}">
+        <div id="row_media_${rowCount}">
+            <div class="input-group mb-2">
+                <input type="file" name="media[${rowCount}][]" class="form-control">
+                <input type="text" name="ref[${rowCount}][]" class="form-control" placeholder="Reference">
+                <button type="button" class="btn btn-outline-danger" onclick="this.parentElement.remove()">×</button>
             </div>
-            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addFileGroup('row_media_${rowCount}', ${rowCount})">+ Add File</button>
-        </td>
-        <td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest('tr').remove()">Remove</button></td>
-    `;
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addFileGroup('row_media_${rowCount}', ${rowCount})">+ Add File</button>
+    </td>
+    <td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest('tr').remove()">Remove</button></td>
+`;
     tbody.appendChild(row);
     rowCount++;
 }

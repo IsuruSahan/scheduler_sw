@@ -7,16 +7,23 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $pdo->beginTransaction();
 
         // 1. Insert the Schedule Header
-        $stmt = $pdo->prepare("INSERT INTO schedules (agency_id, client_id, schedule_name, budget_allocated, start_date, end_date, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([
-            $_POST['agency_id'], 
-            $_POST['client_id'], 
-            $_POST['schedule_name'], 
-            $_POST['budget'], 
-            $_POST['start_date'], 
-            $_POST['end_date'], 
-            $_SESSION['user_id']
-        ]);
+        // Update the INSERT statement in process_schedule.php
+$stmt = $pdo->prepare("
+    INSERT INTO schedules 
+    (agency_id, client_id, schedule_name, reference_no, budget_allocated, start_date, end_date, created_by) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+");
+
+$stmt->execute([
+    $_POST['agency_id'], 
+    $_POST['client_id'], 
+    $_POST['schedule_name'], 
+    $_POST['reference_no'], // Capture the new field
+    $_POST['budget'], 
+    $_POST['start_date'], 
+    $_POST['end_date'], 
+    $_SESSION['user_id']
+]);
         $schedule_id = $pdo->lastInsertId();
 
         // 2. Loop through the rows
