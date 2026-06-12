@@ -53,6 +53,33 @@ $placements = $pdo->query("SELECT * FROM ad_placements ORDER BY placement_name")
 
 <div class="modal fade" id="errorModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header bg-danger text-white"><h5 class="modal-title">Quantity exceeded</h5></div><div class="modal-body" id="error-message"></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button></div></div></div></div>
 
+<div class="modal fade" id="contentModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">Select Content</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+    <div class="row g-2 mb-3">
+        <div class="col-md-4">
+            <input type="text" id="searchName" class="form-control" placeholder="Search Name...">
+        </div>
+        <div class="col-md-4">
+            <input type="number" id="searchEp" class="form-control" placeholder="Ep #...">
+        </div>
+        <div class="col-md-4">
+            <input type="date" id="searchDate" class="form-control">
+        </div>
+    </div>
+    <div style="max-height: 400px; overflow-y: auto;">
+        <table class="table table-hover">
+            <thead><tr><th>Content</th><th>Ep #</th><th>Date</th><th>Select</th></tr></thead>
+            <tbody id="contentModalBody"></tbody>
+        </table>
+    </div>
+</div>
+        </div>
+    </div>
+</div>
+
 <script>
 const allClients = <?php echo json_encode($clients); ?>;
 const allEpisodes = <?php echo json_encode($episodes_log); ?>;
@@ -106,10 +133,13 @@ function addRow() {
     });
 
     row.innerHTML = `
-        <td>
+<td style="min-width: 200px;">
             <input type="hidden" name="row_ids[]" value="${rowId}">
-            <select name="episode_id[]" class="form-select" onchange="calculateCost(this.closest('tr'))">${optionsHtml}</select>
+            <input type="hidden" name="episode_id[]" id="ep_id_${rowId}" class="ep-id">
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="openContentModal(this, '${rowId}')">Select Content</button>
+            <span class="selected-content-text ms-2" id="ep_name_${rowId}"></span>
         </td>
+
         <td><select name="platform_id[]" class="form-select" onchange="calculateCost(this.closest('tr'))"><?php foreach($platforms as $p): ?><option value="<?php echo $p['id']; ?>"><?php echo htmlspecialchars($p['platform_name']); ?></option><?php endforeach; ?></select></td>
         <td><select name="placement_id[]" class="form-select" onchange="calculateCost(this.closest('tr'))"><?php foreach($placements as $pl): ?><option value="<?php echo $pl['id']; ?>"><?php echo htmlspecialchars($pl['placement_name']); ?></option><?php endforeach; ?></select></td>
         <td><input type="number" name="quantity[]" class="form-control" value="1" min="1" oninput="calculateCost(this.closest('tr'))" required></td>
@@ -134,8 +164,12 @@ function calculateCost(row) {
     const platform = row.querySelector('select[name="platform_id[]"]').value;
     const placement = row.querySelector('select[name="placement_id[]"]').value;
     const qtyInput = row.querySelector('input[name="quantity[]"]');
-    const epSelect = row.querySelector('select[name="episode_id[]"]');
-    const contentItemId = epSelect.options[epSelect.selectedIndex].getAttribute('data-content-id');
+    
+    // FIX: Get contentItemId from the hidden input's dataset
+    const epIdField = row.querySelector('.ep-id');
+    const contentItemId = epIdField ? epIdField.dataset.contentId : null;
+    
+    if (!contentItemId) return; // Exit if no content selected
     
     const rateItem = allRates.find(r => r.platform_id == platform && r.placement_id == placement && r.content_item_id == contentItemId);
     
@@ -147,6 +181,10 @@ function calculateCost(row) {
         }
         row.querySelector('.rate-display').innerText = rateItem.rate;
         row.querySelector('.total-display').innerText = (rateItem.rate * qtyInput.value).toFixed(2);
+    } else {
+        // Optional: Reset if no rate found
+        row.querySelector('.rate-display').innerText = '0';
+        row.querySelector('.total-display').innerText = '0';
     }
     updateTotalBudget();
 }
@@ -157,5 +195,67 @@ function updateTotalBudget() {
     document.getElementById('total-generated').innerText = total.toFixed(2);
     document.getElementById('budget-warning').style.display = (total > parseFloat(document.getElementById('budget_input').value || 0)) ? 'block' : 'none';
 }
+
+let activeRow = null;
+
+function openContentModal(btn, rowId) {
+    activeRow = { tr: btn.closest('tr'), rowId: rowId };
+    new bootstrap.Modal(document.getElementById('contentModal')).show();
+}
+
+function selectContent(id, name, contentItemId) {
+    activeRow.tr.querySelector('.ep-id').value = id;
+    activeRow.tr.querySelector('.ep-id').dataset.contentId = contentItemId;
+    activeRow.tr.querySelector('.selected-content-text').innerText = name;
+    
+    bootstrap.Modal.getInstance(document.getElementById('contentModal')).hide();
+    calculateCost(activeRow.tr);
+}
+
+
+
+// Function to handle the multi-column filter
+function filterTable() {
+    const nameVal = document.getElementById('searchName').value.toLowerCase();
+    const epVal = document.getElementById('searchEp').value;
+    const dateVal = document.getElementById('searchDate').value;
+    
+    const rows = document.querySelectorAll('#contentModalBody tr');
+    
+    rows.forEach(row => {
+        const name = row.cells[0].innerText.toLowerCase();
+        const ep = row.cells[1].innerText;
+        const date = row.cells[2].innerText;
+        
+        const matchName = name.includes(nameVal);
+        const matchEp = epVal === "" || ep === epVal;
+        const matchDate = dateVal === "" || date === dateVal;
+        
+        row.style.display = (matchName && matchEp && matchDate) ? '' : 'none';
+    });
+}
+
+// Attach listeners to all inputs
+['searchName', 'searchEp', 'searchDate'].forEach(id => {
+    document.getElementById(id).addEventListener('input', filterTable);
+});
+
+// Update the initial population to include the date
+document.addEventListener("DOMContentLoaded", () => {
+    const tbody = document.getElementById('contentModalBody');
+    allEpisodes.forEach(ep => {
+        tbody.innerHTML += `
+            <tr>
+                <td>${ep.item_name}</td>
+                <td>${ep.episode_number}</td>
+                <td>${ep.upload_date}</td> <td>
+                    <button type="button" class="btn btn-primary btn-sm" 
+                            onclick="selectContent(${ep.id}, '${ep.item_name} Ep ${ep.episode_number}', ${ep.content_item_id})">
+                        Select
+                    </button>
+                </td>
+            </tr>`;
+    });
+});
 </script>
 <?php include '../includes/footer.php'; ?>
