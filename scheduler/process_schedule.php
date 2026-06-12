@@ -10,15 +10,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         // Update the INSERT statement in process_schedule.php
 $stmt = $pdo->prepare("
     INSERT INTO schedules 
-    (agency_id, client_id, schedule_name, reference_no, budget_allocated, start_date, end_date, created_by) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    (agency_id, client_id, schedule_name, reference_no, assigned_team, budget_allocated, start_date, end_date, created_by) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ");
 
 $stmt->execute([
     $_POST['agency_id'], 
     $_POST['client_id'], 
     $_POST['schedule_name'], 
-    $_POST['reference_no'], // Capture the new field
+    $_POST['reference_no'],
+    $_POST['assigned_team'], // Captured from the new select input
     $_POST['budget'], 
     $_POST['start_date'], 
     $_POST['end_date'], 

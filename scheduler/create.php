@@ -4,6 +4,8 @@ require_once __DIR__ . '/../includes/auth.php';
 
 $agencies = $pdo->query("SELECT * FROM agencies ORDER BY agency_name")->fetchAll();
 $clients = $pdo->query("SELECT * FROM clients ORDER BY client_name")->fetchAll();
+// Fetch all rates for JS calculation
+$rate_cards = $pdo->query("SELECT * FROM rate_cards")->fetchAll();
 
 $episodes_log = $pdo->query("
     SELECT e.*, c.name as item_name, c.type 
@@ -55,11 +57,19 @@ $placements = $pdo->query("SELECT * FROM ad_placements ORDER BY placement_name")
                     <input type="date" name="end_date" class="form-control" required>
                 </div>
             </div>
+             <div class="col-md-6">
+                <label class="form-label">Assign Team</label>
+                <select name="assigned_team" class="form-select" required>
+                <option value="Content Editor Team">Content Editor Team</option>
+                <option value="News Team">News Team</option>
+            </select>
+        </div>
             <div class="mt-4">
                 <label class="fw-bold me-3">Mode:</label>
                 <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="mode" value="sync" id="syncMode" checked onclick="toggleMode('sync')"><label class="form-check-label" for="syncMode">Sync (Same for all)</label></div>
                 <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="mode" value="custom" id="customMode" onclick="toggleMode('custom')"><label class="form-check-label" for="customMode">Custom (Per-row)</label></div>
             </div>
+
         </div>
 
         <div id="sync-container" class="card p-3 mb-3 border-primary shadow-sm">
