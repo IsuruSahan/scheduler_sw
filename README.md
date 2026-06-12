@@ -1,0 +1,41 @@
+
+```
+scheduler_sw
+├─ .htaccess
+├─ admin
+│  ├─ agencies.php
+│  ├─ episodes.php
+│  ├─ ratecards.php
+│  ├─ settings.php
+│  └─ users.php
+├─ assets
+│  ├─ css
+│  │  └─ style.css
+│  ├─ img
+│  └─ js
+├─ auth_process.php
+├─ config
+│  ├─ config.php
+│  └─ db.php
+├─ editor
+│  ├─ dashboard.php
+│  └─ details.php
+├─ includes
+│  ├─ auth.php
+│  ├─ footer.php
+│  ├─ functions.php
+│  └─ header.php
+├─ index.php
+├─ login.php
+├─ logout.php
+├─ marketing
+│  └─ dashboard.php
+├─ scheduler
+│  ├─ create.php
+│  ├─ manage.php
+│  └─ process_schedule.php
+├─ test.php
+└─ uploads
+   └─ 1781243106_481125176_960935996218703_7108050420934181707_n.jpg
+
+```

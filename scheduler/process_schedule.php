@@ -2,77 +2,117 @@
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/auth.php';
 
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    try {
-        $pdo->beginTransaction();
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    die("Invalid request.");
+}
 
-        // 1. Insert the Schedule Header
-        // Update the INSERT statement in process_schedule.php
-$stmt = $pdo->prepare("
-    INSERT INTO schedules 
-    (agency_id, client_id, schedule_name, reference_no, assigned_team, budget_allocated, start_date, end_date, created_by) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-");
+try {
+    $pdo->beginTransaction();
 
-$stmt->execute([
-    $_POST['agency_id'], 
-    $_POST['client_id'], 
-    $_POST['schedule_name'], 
-    $_POST['reference_no'],
-    $_POST['assigned_team'], // Captured from the new select input
-    $_POST['budget'], 
-    $_POST['start_date'], 
-    $_POST['end_date'], 
-    $_SESSION['user_id']
-]);
-        $schedule_id = $pdo->lastInsertId();
+    // Ensure uploads directory exists
+    $uploadDir = '../uploads/';
+    if (!is_dir($uploadDir)) {
+        mkdir($uploadDir, 0777, true);
+    }
 
-        // 2. Loop through the rows
-        foreach ($_POST['episode_id'] as $idx => $episode_id) {
-            // IMPORTANT: Fetch content_item_id from the episodes table to satisfy the NOT NULL constraint
-            $stmt = $pdo->prepare("SELECT content_item_id FROM episodes WHERE id = ?");
-            $stmt->execute([$episode_id]);
-            $ep = $stmt->fetch();
-            $content_item_id = $ep['content_item_id'];
+    // 1. Insert Schedule Header
+    $stmt = $pdo->prepare("
+        INSERT INTO schedules (agency_id, client_id, schedule_name, reference_no, assigned_team, budget_allocated, start_date, end_date, created_by) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ");
+    $stmt->execute([
+        $_POST['agency_id'], $_POST['client_id'], $_POST['schedule_name'], $_POST['reference_no'],
+        $_POST['assigned_team'], $_POST['budget'], $_POST['start_date'], $_POST['end_date'], $_SESSION['user_id']
+    ]);
+    $schedule_id = $pdo->lastInsertId();
 
-            // Insert into schedule_items
-            $stmt = $pdo->prepare("INSERT INTO schedule_items (schedule_id, episode_id, content_item_id, platform_id, placement_id) VALUES (?, ?, ?, ?, ?)");
-            $stmt->execute([$schedule_id, $episode_id, $content_item_id, $_POST['platform_id'][$idx], $_POST['placement_id'][$idx]]);
-            $item_id = $pdo->lastInsertId();
+    // 2. Loop through rows using the stable row_ids array
+    foreach ($_POST['row_ids'] as $idx => $rowId) {
+        $episode_id = $_POST['episode_id'][$idx];
+        $qty = filter_var($_POST['quantity'][$idx], FILTER_VALIDATE_INT);
+        
+        if ($qty === false || $qty < 1) throw new Exception("Invalid quantity for row " . ($idx + 1));
 
-            // 3. Handle File Uploads
-            $media_files = [];
-            $media_refs = [];
+        $stmt = $pdo->prepare("SELECT content_item_id FROM episodes WHERE id = ?");
+        $stmt->execute([$episode_id]);
+        $content_item_id = $stmt->fetchColumn();
 
-            if ($_POST['mode'] == 'sync') {
-                $media_files = $_FILES['media']['sync'] ?? [];
-                $media_refs = $_POST['ref']['sync'] ?? [];
-            } else {
-                // For custom mode, extract files for this specific row index
-                $media_files['name'] = $_FILES['media']['name'][$idx] ?? [];
-                $media_files['tmp_name'] = $_FILES['media']['tmp_name'][$idx] ?? [];
-                $media_refs = $_POST['ref'][$idx] ?? [];
+        $stmt = $pdo->prepare("SELECT rate, max_quantity FROM rate_cards WHERE platform_id = ? AND placement_id = ? AND content_item_id = ?");
+        $stmt->execute([$_POST['platform_id'][$idx], $_POST['placement_id'][$idx], $content_item_id]);
+        $rateData = $stmt->fetch();
+        
+        $rate = $rateData['rate'] ?? 0;
+        $max_qty = $rateData['max_quantity'] ?? 0;
+
+        if ($qty > $max_qty) {
+            throw new Exception("Validation Error: Row " . ($idx + 1) . " exceeds max quantity of " . $max_qty);
+        }
+
+        $row_cost = $rate * $qty;
+
+        // Insert Item
+        $stmt = $pdo->prepare("INSERT INTO schedule_items (schedule_id, episode_id, content_item_id, platform_id, placement_id, quantity, cost) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$schedule_id, $episode_id, $content_item_id, $_POST['platform_id'][$idx], $_POST['placement_id'][$idx], $qty, $row_cost]);
+        $item_id = $pdo->lastInsertId();
+
+        // 3. Handle File Uploads (Supports Multiple Files + References)
+        $mode = $_POST['mode'];
+        $filesToProcess = [];
+
+        if ($mode === 'sync') {
+            if (!empty($_FILES['media']['name']['sync'])) {
+                foreach ($_FILES['media']['name']['sync'] as $fIdx => $name) {
+                    if ($name) {
+                        $filesToProcess[] = [
+                            'name' => $name, 
+                            'tmp' => $_FILES['media']['tmp_name']['sync'][$fIdx],
+                            'ref' => $_POST['ref']['sync'][$fIdx] ?? ''
+                        ];
+                    }
+                }
             }
-
-            if (!empty($media_files['name'])) {
-                foreach ($media_files['name'] as $fIdx => $fileName) {
-                    if ($fileName) {
-                        $target = '../uploads/' . time() . '_' . $fileName;
-                        if (move_uploaded_file($media_files['tmp_name'][$fIdx], $target)) {
-                            $pdo->prepare("INSERT INTO media_attachments (schedule_item_id, file_path, file_reference) VALUES (?, ?, ?)")
-                                ->execute([$item_id, $target, $media_refs[$fIdx]]);
-                        }
+        } else {
+            if (isset($_FILES['media']['name'][$rowId])) {
+                foreach ($_FILES['media']['name'][$rowId] as $fIdx => $name) {
+                    if ($name) {
+                        $filesToProcess[] = [
+                            'name' => $name, 
+                            'tmp' => $_FILES['media']['tmp_name'][$rowId][$fIdx],
+                            'ref' => $_POST['ref'][$rowId][$fIdx] ?? ''
+                        ];
                     }
                 }
             }
         }
 
-        $pdo->commit();
-        header("Location: dashboard.php?status=success");
-        exit();
-
-    } catch (Exception $e) {
-        $pdo->rollBack();
-        die("Error saving schedule: " . $e->getMessage());
+        // Insert ALL files into media_attachments table
+        foreach ($filesToProcess as $file) {
+            $target = $uploadDir . time() . '_' . basename($file['name']);
+            if (move_uploaded_file($file['tmp'], $target)) {
+                // Now saving both path and reference
+                $stmt = $pdo->prepare("INSERT INTO media_attachments (schedule_item_id, file_path, file_reference) VALUES (?, ?, ?)");
+                $stmt->execute([$item_id, $target, $file['ref']]);
+            } else {
+                throw new Exception("File upload failed for " . $file['name']);
+            }
+        }
     }
+
+    // 4. Final Budget Validation
+    $stmt = $pdo->prepare("SELECT SUM(cost) FROM schedule_items WHERE schedule_id = ?");
+    $stmt->execute([$schedule_id]);
+    $total_cost = $stmt->fetchColumn();
+
+    if ($total_cost > $_POST['budget']) {
+        throw new Exception("Budget Exceeded: Total (Rs. " . number_format($total_cost, 2) . ") exceeds budget (Rs. " . number_format($_POST['budget'], 2) . ").");
+    }
+
+    $pdo->commit();
+    header("Location: dashboard.php?status=success");
+    exit();
+
+} catch (Exception $e) {
+    if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
+    header("Location: create.php?error=" . urlencode($e->getMessage()));
+    exit();
 }
