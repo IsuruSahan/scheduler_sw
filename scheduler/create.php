@@ -47,7 +47,9 @@ $placements = $pdo->query("SELECT * FROM ad_placements ORDER BY placement_name")
         </table>
         <button type="button" class="btn btn-primary mb-3" onclick="addRow()">+ Add Platform Row</button>
         <div class="mt-3 p-3 bg-light border rounded"><strong>Total Generated: Rs. <span id="total-generated">0</span></strong><div id="budget-warning" class="text-danger fw-bold mt-2" style="display:none;">⚠️ Warning: Total cost exceeds allocated budget!</div></div>
-        <button type="submit" class="btn btn-success float-end mt-3">Create Schedule</button>
+        <button type="submit" name="action" value="create" id="btn-create" class="btn btn-success float-end mt-3 mb-3">Create Schedule</button>
+        <button type="submit" name="action" value="approve" id="btn-approve" class="btn btn-warning float-end mt-3 mb-3 me-2" style="display:none;">Send to Marketing Officer for Approval</button>
+
     </form>
 </div>
 
@@ -192,8 +194,15 @@ function calculateCost(row) {
 function updateTotalBudget() {
     let total = 0;
     document.querySelectorAll('.total-display').forEach(el => total += parseFloat(el.innerText || 0));
+    const budget = parseFloat(document.getElementById('budget_input').value || 0);
+    const exceeded = total > budget;
+
     document.getElementById('total-generated').innerText = total.toFixed(2);
-    document.getElementById('budget-warning').style.display = (total > parseFloat(document.getElementById('budget_input').value || 0)) ? 'block' : 'none';
+    document.getElementById('budget-warning').style.display = exceeded ? 'block' : 'none';
+
+    // Toggle button visibility
+    document.getElementById('btn-create').style.display = exceeded ? 'none' : 'block';
+    document.getElementById('btn-approve').style.display = exceeded ? 'block' : 'none';
 }
 
 let activeRow = null;
