@@ -26,6 +26,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
                         <li class="nav-item"><a class="nav-link" href="<?php echo BASE_URL; ?>admin/episodes.php">Content Management</a></li>
                         <li class="nav-item"><a class="nav-link" href="<?php echo BASE_URL; ?>admin/settings.php">Settings</a></li>
                         <li class="nav-item"><a class="nav-link" href="<?php echo BASE_URL; ?>admin/users.php">User Management</a></li>
+                        <li class="nav-item"><a class="nav-link" href="<?php echo BASE_URL; ?>admin/inventory.php">Inventory Management</a></li>
 
 
 

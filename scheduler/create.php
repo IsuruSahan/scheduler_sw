@@ -5,9 +5,12 @@ require_once __DIR__ . '/../includes/auth.php';
 $agencies = $pdo->query("SELECT * FROM agencies ORDER BY agency_name")->fetchAll();
 $clients = $pdo->query("SELECT * FROM clients ORDER BY client_name")->fetchAll();
 $rate_cards = $pdo->query("SELECT * FROM rate_cards")->fetchAll();
-$episodes_log = $pdo->query("SELECT e.*, c.name as item_name, c.type, c.id as content_item_id FROM episodes e JOIN content_items c ON e.content_item_id = c.id ORDER BY c.name, e.episode_number DESC")->fetchAll();
+$content_items = $pdo->query("SELECT id, name, type FROM content_items ORDER BY name")->fetchAll();
 $platforms = $pdo->query("SELECT * FROM platforms ORDER BY platform_name")->fetchAll();
 $placements = $pdo->query("SELECT * FROM ad_placements ORDER BY placement_name")->fetchAll();
+$media_formats = $pdo->query("SELECT * FROM media_formats ORDER BY format_name")->fetchAll();
+$inventory_data = $pdo->query("SELECT rate_card_id, total_capacity, used_qty FROM inventory")->fetchAll(PDO::FETCH_ASSOC);
+
 ?>
 
 <?php include '../includes/header.php'; ?>
@@ -34,14 +37,24 @@ $placements = $pdo->query("SELECT * FROM ad_placements ORDER BY placement_name")
         </div>
 
         <div id="sync-container" class="card p-3 mb-3 border-primary shadow-sm">
-            <label class="fw-bold">Media for ALL (Sync Mode):</label>
+            <label class="fw-bold">Media for all:</label>
             <div id="sync-files"><div class="input-group mb-2"><input type="file" name="media[sync][]" class="form-control"><input type="text" name="ref[sync][]" class="form-control" placeholder="Reference"><button type="button" class="btn btn-outline-danger" onclick="this.parentElement.remove()">×</button></div></div>
             <button type="button" class="btn btn-sm btn-outline-primary" onclick="addFileGroup('sync-files', 'sync')">+ Add File</button>
         </div>
 
         <table class="table table-bordered table-hover">
             <thead class="table-light">
-                <tr><th>Content</th><th>Platform</th><th>Placement</th><th>Qty</th><th>Rate</th><th>Total</th><th class="custom-only" style="display:none;">Media</th><th>Action</th></tr>
+                <tr>
+                    <th>Content</th>
+                    <th>Platform</th>
+                    <th>Placement</th>
+                    <th>Format</th>
+                    <th>Qty</th>
+                    <th>Rate</th>
+                    <th>Total</th>
+                    <th class="custom-only" style="display:none;">Media</th>
+                    <th>Action</th>
+                </tr>
             </thead>
             <tbody id="items-body"></tbody>
         </table>
@@ -49,52 +62,45 @@ $placements = $pdo->query("SELECT * FROM ad_placements ORDER BY placement_name")
         <div class="mt-3 p-3 bg-light border rounded"><strong>Total Generated: Rs. <span id="total-generated">0</span></strong><div id="budget-warning" class="text-danger fw-bold mt-2" style="display:none;">⚠️ Warning: Total cost exceeds allocated budget!</div></div>
         <button type="submit" name="action" value="create" id="btn-create" class="btn btn-success float-end mt-3 mb-3">Create Schedule</button>
         <button type="submit" name="action" value="approve" id="btn-approve" class="btn btn-warning float-end mt-3 mb-3 me-2" style="display:none;">Send to Marketing Officer for Approval</button>
-
     </form>
 </div>
 
-<div class="modal fade" id="errorModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header bg-danger text-white"><h5 class="modal-title">Quantity exceeded</h5></div><div class="modal-body" id="error-message"></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button></div></div></div></div>
+<div class="modal fade" id="errorModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header bg-danger text-white"><h5 class="modal-title">Inventory Error</h5></div><div class="modal-body" id="error-message"></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button></div></div></div></div>
 
 <div class="modal fade" id="contentModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
-            <div class="modal-header"><h5 class="modal-title">Select Content</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-header"><h5 class="modal-title">Select Program</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
-    <div class="row g-2 mb-3">
-        <div class="col-md-4">
-            <input type="text" id="searchName" class="form-control" placeholder="Search Name...">
-        </div>
-        <div class="col-md-4">
-            <input type="number" id="searchEp" class="form-control" placeholder="Ep #...">
-        </div>
-        <div class="col-md-4">
-            <input type="date" id="searchDate" class="form-control">
-        </div>
-    </div>
-    <div style="max-height: 400px; overflow-y: auto;">
-        <table class="table table-hover">
-            <thead><tr><th>Content</th><th>Ep #</th><th>Date</th><th>Select</th></tr></thead>
-            <tbody id="contentModalBody"></tbody>
-        </table>
-    </div>
-</div>
+                <div class="row g-2 mb-3">
+                    <div class="col-md-6"><input type="text" id="searchName" class="form-control" placeholder="Search Program Name..."></div>
+                </div>
+                <div style="max-height: 400px; overflow-y: auto;">
+                    <table class="table table-hover">
+                        <thead><tr><th>Name</th><th>Type</th><th>Select</th></tr></thead>
+                        <tbody id="contentModalBody"></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
 </div>
 
 <script>
 const allClients = <?php echo json_encode($clients); ?>;
-const allEpisodes = <?php echo json_encode($episodes_log); ?>;
+const allContent = <?php echo json_encode($content_items); ?>;
 const allRates = <?php echo json_encode($rate_cards); ?>;
+const allFormats = <?php echo json_encode($media_formats); ?>;
+const allInventory = <?php echo json_encode($inventory_data); ?>;
+
+let activeRow = null;
+const modalEl = document.getElementById('contentModal');
+const contentModal = new bootstrap.Modal(modalEl);
 
 function updateClients() {
     const agencyId = document.getElementById('agency_id').value;
     const clientSelect = document.getElementById('client_id');
-    
-    // Reset client dropdown
     clientSelect.innerHTML = '<option value="">Select Client</option>';
-    
-    // Filter and add matching clients
     allClients.filter(c => c.agency_id == agencyId).forEach(c => {
         clientSelect.innerHTML += `<option value="${c.id}">${c.client_name}</option>`;
     });
@@ -119,74 +125,51 @@ window.addFileGroup = (id, rowId) => {
 };
 
 function addRow() {
-    const rowId = Date.now(); // Stable Unique ID
+    const rowId = Date.now();
     const mode = document.querySelector('input[name="mode"]:checked').value;
     const row = document.createElement('tr');
     
-    // Generate Options
-    let optionsHtml = ''; let lastItem = null;
-    allEpisodes.forEach(ep => {
-        if (ep.item_name !== lastItem) {
-            if (lastItem !== null) optionsHtml += '</optgroup>';
-            optionsHtml += `<optgroup label="${ep.item_name} (${ep.type})">`;
-            lastItem = ep.item_name;
-        }
-        optionsHtml += `<option value="${ep.id}" data-content-id="${ep.content_item_id}">[${ep.upload_date}] Ep ${ep.episode_number}: ${ep.episode_title}</option>`;
-    });
-
     row.innerHTML = `
-<td style="min-width: 200px;">
+        <td style="min-width: 200px;">
             <input type="hidden" name="row_ids[]" value="${rowId}">
-            <input type="hidden" name="episode_id[]" id="ep_id_${rowId}" class="ep-id">
-            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="openContentModal(this, '${rowId}')">Select Content</button>
-            <span class="selected-content-text ms-2" id="ep_name_${rowId}"></span>
+            <input type="hidden" name="content_item_id[]" class="content-id">
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="openContentModal(this)">Select Program</button>
+            <span class="selected-content-text ms-2"></span>
         </td>
-
         <td><select name="platform_id[]" class="form-select" onchange="calculateCost(this.closest('tr'))"><?php foreach($platforms as $p): ?><option value="<?php echo $p['id']; ?>"><?php echo htmlspecialchars($p['platform_name']); ?></option><?php endforeach; ?></select></td>
         <td><select name="placement_id[]" class="form-select" onchange="calculateCost(this.closest('tr'))"><?php foreach($placements as $pl): ?><option value="<?php echo $pl['id']; ?>"><?php echo htmlspecialchars($pl['placement_name']); ?></option><?php endforeach; ?></select></td>
+        <td><select name="media_format_id[]" class="form-select" onchange="calculateCost(this.closest('tr'))">${allFormats.map(f => `<option value="${f.id}">${f.format_name}</option>`).join('')}</select></td>    
         <td><input type="number" name="quantity[]" class="form-control" value="1" min="1" oninput="calculateCost(this.closest('tr'))" required></td>
         <td>Rs. <span class="rate-display">0</span></td>
         <td>Rs. <span class="total-display">0</span></td>
         <td class="custom-only" style="display: ${mode === 'custom' ? 'table-cell' : 'none'}">
-            <div id="row_media_${rowId}">
-                <div class="input-group mb-2">
-                    <input type="file" name="media[${rowId}][]" class="form-control">
-                    <input type="text" name="ref[${rowId}][]" class="form-control" placeholder="Reference">
-                </div>
-            </div>
             <button type="button" class="btn btn-sm btn-outline-primary" onclick="addFileGroup('row_media_${rowId}', ${rowId})">+ Add File</button>
         </td>
         <td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest('tr').remove(); updateTotalBudget();">Remove</button></td>
     `;
     document.getElementById('items-body').appendChild(row);
-    calculateCost(row);
 }
 
 function calculateCost(row) {
     const platform = row.querySelector('select[name="platform_id[]"]').value;
     const placement = row.querySelector('select[name="placement_id[]"]').value;
+    const format = row.querySelector('select[name="media_format_id[]"]').value;
     const qtyInput = row.querySelector('input[name="quantity[]"]');
+    const contentId = row.querySelector('.content-id').value;
     
-    // FIX: Get contentItemId from the hidden input's dataset
-    const epIdField = row.querySelector('.ep-id');
-    const contentItemId = epIdField ? epIdField.dataset.contentId : null;
+    if (!contentId) return;
     
-    if (!contentItemId) return; // Exit if no content selected
-    
-    const rateItem = allRates.find(r => r.platform_id == platform && r.placement_id == placement && r.content_item_id == contentItemId);
+    const rateItem = allRates.find(r => r.platform_id == platform && r.placement_id == placement && r.content_item_id == contentId && r.media_format_id == format);
     
     if (rateItem) {
-        qtyInput.setAttribute('max', rateItem.max_quantity);
-        if (parseInt(qtyInput.value) > parseInt(rateItem.max_quantity)) {
-            showError('Quantity exceeds max allowed limit of ' + rateItem.max_quantity);
-            qtyInput.value = rateItem.max_quantity;
+        const invItem = allInventory.find(i => i.rate_card_id == rateItem.id);
+        const available = invItem ? (invItem.total_capacity - invItem.used_qty) : 0;
+        if (parseInt(qtyInput.value) > available) {
+            showError('Quantity exceeds available balance: ' + available);
+            qtyInput.value = available;
         }
         row.querySelector('.rate-display').innerText = rateItem.rate;
         row.querySelector('.total-display').innerText = (rateItem.rate * qtyInput.value).toFixed(2);
-    } else {
-        // Optional: Reset if no rate found
-        row.querySelector('.rate-display').innerText = '0';
-        row.querySelector('.total-display').innerText = '0';
     }
     updateTotalBudget();
 }
@@ -196,74 +179,35 @@ function updateTotalBudget() {
     document.querySelectorAll('.total-display').forEach(el => total += parseFloat(el.innerText || 0));
     const budget = parseFloat(document.getElementById('budget_input').value || 0);
     const exceeded = total > budget;
-
     document.getElementById('total-generated').innerText = total.toFixed(2);
     document.getElementById('budget-warning').style.display = exceeded ? 'block' : 'none';
-
-    // Toggle button visibility
     document.getElementById('btn-create').style.display = exceeded ? 'none' : 'block';
     document.getElementById('btn-approve').style.display = exceeded ? 'block' : 'none';
 }
 
-let activeRow = null;
-
-function openContentModal(btn, rowId) {
-    activeRow = { tr: btn.closest('tr'), rowId: rowId };
-    new bootstrap.Modal(document.getElementById('contentModal')).show();
+function openContentModal(btn) {
+    activeRow = btn.closest('tr');
+    contentModal.show();
 }
 
-function selectContent(id, name, contentItemId) {
-    activeRow.tr.querySelector('.ep-id').value = id;
-    activeRow.tr.querySelector('.ep-id').dataset.contentId = contentItemId;
-    activeRow.tr.querySelector('.selected-content-text').innerText = name;
-    
-    bootstrap.Modal.getInstance(document.getElementById('contentModal')).hide();
-    calculateCost(activeRow.tr);
+function selectContent(id, name) {
+    activeRow.querySelector('.content-id').value = id;
+    activeRow.querySelector('.selected-content-text').innerText = name;
+    contentModal.hide();
+    calculateCost(activeRow);
 }
 
-
-
-// Function to handle the multi-column filter
-function filterTable() {
-    const nameVal = document.getElementById('searchName').value.toLowerCase();
-    const epVal = document.getElementById('searchEp').value;
-    const dateVal = document.getElementById('searchDate').value;
-    
-    const rows = document.querySelectorAll('#contentModalBody tr');
-    
-    rows.forEach(row => {
-        const name = row.cells[0].innerText.toLowerCase();
-        const ep = row.cells[1].innerText;
-        const date = row.cells[2].innerText;
-        
-        const matchName = name.includes(nameVal);
-        const matchEp = epVal === "" || ep === epVal;
-        const matchDate = dateVal === "" || date === dateVal;
-        
-        row.style.display = (matchName && matchEp && matchDate) ? '' : 'none';
+document.getElementById('searchName').addEventListener('input', function() {
+    const val = this.value.toLowerCase();
+    document.querySelectorAll('#contentModalBody tr').forEach(row => {
+        row.style.display = row.cells[0].innerText.toLowerCase().includes(val) ? '' : 'none';
     });
-}
-
-// Attach listeners to all inputs
-['searchName', 'searchEp', 'searchDate'].forEach(id => {
-    document.getElementById(id).addEventListener('input', filterTable);
 });
 
-// Update the initial population to include the date
 document.addEventListener("DOMContentLoaded", () => {
     const tbody = document.getElementById('contentModalBody');
-    allEpisodes.forEach(ep => {
-        tbody.innerHTML += `
-            <tr>
-                <td>${ep.item_name}</td>
-                <td>${ep.episode_number}</td>
-                <td>${ep.upload_date}</td> <td>
-                    <button type="button" class="btn btn-primary btn-sm" 
-                            onclick="selectContent(${ep.id}, '${ep.item_name} Ep ${ep.episode_number}', ${ep.content_item_id})">
-                        Select
-                    </button>
-                </td>
-            </tr>`;
+    allContent.forEach(item => {
+        tbody.innerHTML += `<tr><td>${item.name}</td><td>${item.type}</td><td><button type="button" class="btn btn-primary btn-sm" onclick="selectContent(${item.id}, '${item.name}')">Select</button></td></tr>`;
     });
 });
 </script>
