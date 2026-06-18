@@ -29,6 +29,7 @@ if (isset($_GET['action'])) {
             
             $dailyRate = $s['budget_allocated'] / $totalDays;
             $burnedCost = $dailyRate * $activeDays;
+            $remainingBudget = max(0, $s['budget_allocated'] - $burnedCost);
 
             // 2. Release inventory based on remaining days
             $items = $pdo->prepare("SELECT content_item_id, platform_id, placement_id, quantity FROM schedule_items WHERE schedule_id = ?");
@@ -42,11 +43,20 @@ if (isset($_GET['action'])) {
                 $stmt = $pdo->prepare("UPDATE inventory SET used_qty = used_qty - ? WHERE rate_card_id = (SELECT id FROM rate_cards WHERE content_item_id = ? AND platform_id = ? AND placement_id = ? LIMIT 1)");
                 $stmt->execute([$returnQty, $item['content_item_id'], $item['platform_id'], $item['placement_id']]);
                 
-                $inventory_log .= "Item ID: {$item['content_item_id']} | Returned: {$returnQty}\n";
+                $inventory_log .= "Item: {$item['content_item_id']} | Returned: {$returnQty}\n";
             }
             
-            // 3. Save final cost and stop status
-            $pdo->prepare("UPDATE schedules SET status = 'Stopped', final_cost = ? WHERE id = ?")->execute([$burnedCost, $_GET['id']]);
+            // 3. Save final cost, summary metrics and stop status to database
+            $pdo->prepare("
+                UPDATE schedules 
+                SET status = 'Stopped', 
+                    final_cost = ?, 
+                    days_run = ?, 
+                    total_days = ?, 
+                    remaining_budget = ? 
+                WHERE id = ?"
+            )->execute([$burnedCost, $activeDays, $totalDays, $remainingBudget, $_GET['id']]);
+            
             $pdo->commit();
             
             echo json_encode([
@@ -56,7 +66,7 @@ if (isset($_GET['action'])) {
                     'active_days' => $activeDays,
                     'total_days' => $totalDays,
                     'burned_cost' => number_format($burnedCost, 2),
-                    'remaining_budget' => number_format($s['budget_allocated'] - $burnedCost, 2),
+                    'remaining_budget' => number_format($remainingBudget, 2),
                     'inventory_details' => $inventory_log
                 ]
             ]);
@@ -153,13 +163,9 @@ include '../includes/header.php';
 <div class="modal fade" id="reportModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
-            <div class="modal-header bg-info text-white">
-                <h5 class="modal-title">Schedule Finalization Report</h5>
-            </div>
+            <div class="modal-header bg-info text-white"><h5 class="modal-title">Schedule Finalization Report</h5></div>
             <div class="modal-body" id="reportContent"></div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-primary" onclick="location.reload()">Close & Refresh</button>
-            </div>
+            <div class="modal-footer"><button type="button" class="btn btn-primary" onclick="location.reload()">Close & Refresh</button></div>
         </div>
     </div>
 </div>

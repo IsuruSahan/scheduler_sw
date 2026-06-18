@@ -18,7 +18,7 @@ $inventory_data = $pdo->query("SELECT rate_card_id, total_capacity, used_qty FRO
 <div class="container-fluid px-4">
     <h3 class="mb-4">Create New Schedule</h3>
     
-    <form action="process_schedule.php" method="POST" enctype="multipart/form-data">
+    <form action="process_schedule.php" method="POST" enctype="multipart/form-data" id="scheduleForm">
         <div class="card p-4 mb-4 shadow-sm border-0">
             <div class="row g-3">
                 <div class="col-md-6"><label class="form-label">Agency</label><select name="agency_id" id="agency_id" class="form-select" onchange="updateClients()" required><option value="">Select Agency</option><?php foreach($agencies as $a): ?><option value="<?php echo $a['id']; ?>"><?php echo htmlspecialchars($a['agency_name']); ?></option><?php endforeach; ?></select></div>
@@ -26,8 +26,8 @@ $inventory_data = $pdo->query("SELECT rate_card_id, total_capacity, used_qty FRO
                 <div class="col-md-6"><label class="form-label">Schedule Name</label><input type="text" name="schedule_name" class="form-control" required></div>
                 <div class="col-md-6"><label class="form-label">Reference No.</label><input type="text" name="reference_no" class="form-control"></div>
                 <div class="col-md-4"><label class="form-label">Total Budget (Rs.)</label><input type="number" name="budget" id="budget_input" class="form-control" oninput="updateTotalBudget()" required></div>
-                <div class="col-md-4"><label class="form-label">Start Date</label><input type="date" name="start_date" class="form-control" required></div>
-                <div class="col-md-4"><label class="form-label">End Date</label><input type="date" name="end_date" class="form-control" required></div>
+                <div class="col-md-4"><label class="form-label">Start Date</label><input type="date" name="start_date" id="start_date" class="form-control" required></div>
+                <div class="col-md-4"><label class="form-label">End Date</label><input type="date" name="end_date" id="end_date" class="form-control" required></div>
                 <div class="col-md-6"><label class="form-label">Assign Team</label><select name="assigned_team" class="form-select" required><option value="Content Editor Team">Content Editor Team</option><option value="News Team">News Team</option></select></div>
             </div>
             <div class="mt-4"><label class="fw-bold me-3">Mode:</label>
@@ -72,9 +72,7 @@ $inventory_data = $pdo->query("SELECT rate_card_id, total_capacity, used_qty FRO
         <div class="modal-content">
             <div class="modal-header"><h5 class="modal-title">Select Program</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
-                <div class="row g-2 mb-3">
-                    <div class="col-md-6"><input type="text" id="searchName" class="form-control" placeholder="Search Program Name..."></div>
-                </div>
+                <div class="row g-2 mb-3"><div class="col-md-6"><input type="text" id="searchName" class="form-control" placeholder="Search Program Name..."></div></div>
                 <div style="max-height: 400px; overflow-y: auto;">
                     <table class="table table-hover">
                         <thead><tr><th>Name</th><th>Type</th><th>Select</th></tr></thead>
@@ -96,6 +94,12 @@ const allInventory = <?php echo json_encode($inventory_data); ?>;
 let activeRow = null;
 const modalEl = document.getElementById('contentModal');
 const contentModal = new bootstrap.Modal(modalEl);
+
+document.getElementById('scheduleForm').addEventListener('submit', function(e) {
+    const start = new Date(document.getElementById('start_date').value);
+    const end = new Date(document.getElementById('end_date').value);
+    if (end < start) { e.preventDefault(); showError('Error: End Date cannot be earlier than Start Date.'); }
+});
 
 function updateClients() {
     const agencyId = document.getElementById('agency_id').value;
@@ -143,6 +147,7 @@ function addRow() {
         <td>Rs. <span class="rate-display">0</span></td>
         <td>Rs. <span class="total-display">0</span></td>
         <td class="custom-only" style="display: ${mode === 'custom' ? 'table-cell' : 'none'}">
+            <div id="row_media_${rowId}"></div>
             <button type="button" class="btn btn-sm btn-outline-primary" onclick="addFileGroup('row_media_${rowId}', ${rowId})">+ Add File</button>
         </td>
         <td><button type="button" class="btn btn-danger btn-sm" onclick="this.closest('tr').remove(); updateTotalBudget();">Remove</button></td>
@@ -156,11 +161,8 @@ function calculateCost(row) {
     const format = row.querySelector('select[name="media_format_id[]"]').value;
     const qtyInput = row.querySelector('input[name="quantity[]"]');
     const contentId = row.querySelector('.content-id').value;
-    
     if (!contentId) return;
-    
     const rateItem = allRates.find(r => r.platform_id == platform && r.placement_id == placement && r.content_item_id == contentId && r.media_format_id == format);
-    
     if (rateItem) {
         const invItem = allInventory.find(i => i.rate_card_id == rateItem.id);
         const available = invItem ? (invItem.total_capacity - invItem.used_qty) : 0;
@@ -210,5 +212,7 @@ document.addEventListener("DOMContentLoaded", () => {
         tbody.innerHTML += `<tr><td>${item.name}</td><td>${item.type}</td><td><button type="button" class="btn btn-primary btn-sm" onclick="selectContent(${item.id}, '${item.name}')">Select</button></td></tr>`;
     });
 });
+
+
 </script>
 <?php include '../includes/footer.php'; ?>
