@@ -1,0 +1,85 @@
+CNAME 1
+Name - mte1._domainkey.test.athavaneng.com
+value - dkim1.mandrillapp.com
+
+CNAME 2
+Name - mte2._domainkey.test.athavaneng.com
+value - dkim2.mandrillapp.com
+
+Type: TXT
+Name / Host: test
+Value: v=spf1 include:spf.mandrillapp.com ~all
+
+TXT	
+_dmarc.test.athavaneng.com
+v=DMARC1; p=none;
+
+total dramas instead total time
+
+drama name episode edit screen
+
+image remove
+
+parameteres edit
+
+live-active-
+
+
+api karapu ratings apitama balaganda puluwan wenda one
+
+save progress remove
+
+overall quuality eka average ekkin enda one
+
+comments kiyala danda
+brouse dramas - back to dashbord
+
+my reviews ekak danda one mage reviws tika okkoma pennanda
+
+expiration time admin settings and parameteres
+table eke widiyata marks denda one
+
+marks 100 ta validation ekak danda
+
+
+
+
+
+
+
+
+episode nmei teledrama ekatamai review eka danda one
+
+anthima ekath review karata passe tamai average eka  pennanda one
+
+pending kiyala pennanda
+
+pending aya usin pennala 
+
+episode rated remove
+
+production report- teledrama score report
+
+teledrama ekkata kochchara watch time ekak tynawada
+
+review time ekak,login time,
+
+view log eg ekata gihama review kara
+
+
+teledrama ekatama countdown ekata yanne
+
+time eka date walin count down wenda
+
+teledrama eka review karala iwarainam time eka wadi wen na
+
+untill the final review wording eka
+
+revew eka welawa eddi kochchara balala tynawada
+review karaddi tyna watch time eka ati
+
+episod eke review karan natuwa
+
+
+
+

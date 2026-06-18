@@ -153,20 +153,49 @@ $statusClass = ($schedule['status'] == 'Active') ? 'bg-success' : (($schedule['s
     </div>
 </div>
 
+<div class="modal fade" id="reportModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white"><h5 class="modal-title">Schedule Finalization Report</h5></div>
+            <div class="modal-body" id="reportContent"></div>
+            <div class="modal-footer"><button type="button" class="btn btn-primary" onclick="location.reload()">Close & Refresh</button></div>
+        </div>
+    </div>
+</div>
+
 <script>
 function stopSchedule(id) {
-    if (!confirm('Are you sure you want to stop this schedule? This will release the allocated inventory.')) return;
-    fetch('manage.php?action=stop&id=' + id).then(r => r.json()).then(data => {
-        if (data.status === 'success') location.reload(); else alert('Error: ' + data.message);
+    if (!confirm('Are you sure you want to stop this schedule? This will calculate the final budget and release remaining inventory.')) return;
+    
+    fetch('manage.php?action=stop&id=' + id)
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'success') {
+            let html = `
+                <table class="table table-bordered">
+                    <tr><th>Total Budget</th><td>Rs. ${data.report.total_budget}</td></tr>
+                    <tr><th>Days Run</th><td>${data.report.active_days} / ${data.report.total_days}</td></tr>
+                    <tr><th>Total Spent</th><td>Rs. ${data.report.burned_cost}</td></tr>
+                    <tr><th>Remaining Budget</th><td>Rs. ${data.report.remaining_budget}</td></tr>
+                </table>
+                <h6>Itemized Inventory Released:</h6>
+                <pre class="bg-light p-2">${data.report.inventory_details}</pre>
+            `;
+            document.getElementById('reportContent').innerHTML = html;
+            new bootstrap.Modal(document.getElementById('reportModal')).show();
+        } else {
+            alert('Error: ' + data.message);
+        }
     });
 }
-function openEditModal(itemId, scheduleId, contentId, platformId, placementId, formatId, qty) {
+
+function openEditModal(itemId, schId, cId, pId, plId, fId, qty) {
     document.getElementById('edit_item_id').value = itemId;
-    document.getElementById('edit_schedule_id').value = scheduleId;
-    document.getElementById('edit_content_id').value = contentId;
-    document.getElementById('edit_platform_id').value = platformId;
-    document.getElementById('edit_placement_id').value = placementId;
-    document.getElementById('edit_format_id').value = formatId;
+    document.getElementById('edit_schedule_id').value = schId;
+    document.getElementById('edit_content_id').value = cId;
+    document.getElementById('edit_platform_id').value = pId;
+    document.getElementById('edit_placement_id').value = plId;
+    document.getElementById('edit_format_id').value = fId;
     document.getElementById('edit_quantity').value = qty;
     new bootstrap.Modal(document.getElementById('editItemModal')).show();
 }

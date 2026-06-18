@@ -6,7 +6,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $pdo->beginTransaction();
         
-        // 1. Capture Form Inputs (Matching the dropdown names in details.php)
+        // 1. Capture Form Inputs
         $item_id = $_POST['item_id'];
         $schedule_id = $_POST['schedule_id'];
         $new_content_id = $_POST['content_id'];
@@ -20,8 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $old_stmt->execute([$item_id]);
         $old = $old_stmt->fetch();
 
-        // 3. Find NEW Rate Card ID & Rate 
-        // Logic: Search for the rate card matching the new inputs
+        // 3. Find NEW Rate Card ID & Rate
         $rate_check = $pdo->prepare("SELECT id, rate FROM rate_cards WHERE content_item_id = ? AND platform_id = ? AND placement_id = ? AND media_format_id = ? LIMIT 1");
         $rate_check->execute([$new_content_id, $new_platform_id, $new_placement_id, $new_format_id]);
         $new_rate = $rate_check->fetch();
@@ -64,15 +63,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $pdo->prepare("UPDATE schedule_items SET content_item_id = ?, platform_id = ?, placement_id = ?, quantity = ?, cost = ? WHERE id = ?")
             ->execute([$new_content_id, $new_platform_id, $new_placement_id, $new_qty, $new_cost, $item_id]);
 
-        // 7. Budget Gate
-        $total_cost = $pdo->prepare("SELECT SUM(cost) FROM schedule_items WHERE schedule_id = ?");
-        $total_cost->execute([$schedule_id]);
-        $new_total = $total_cost->fetchColumn();
+        // 7. Budget Gate Verification
+        $total_cost_stmt = $pdo->prepare("SELECT SUM(cost) FROM schedule_items WHERE schedule_id = ?");
+        $total_cost_stmt->execute([$schedule_id]);
+        $new_total = $total_cost_stmt->fetchColumn();
 
-        $budget = $pdo->prepare("SELECT budget_allocated FROM schedules WHERE id = ?");
-        $budget->execute([$schedule_id]);
+        $budget_stmt = $pdo->prepare("SELECT budget_allocated FROM schedules WHERE id = ?");
+        $budget_stmt->execute([$schedule_id]);
+        $allocated_budget = $budget_stmt->fetchColumn();
         
-        if ($new_total > $budget->fetchColumn()) {
+        // If cost exceeds budget, trigger MO Approval status
+        if ($new_total > $allocated_budget) {
             $pdo->prepare("UPDATE schedules SET status = 'Pending Approval' WHERE id = ?")->execute([$schedule_id]);
         }
 
