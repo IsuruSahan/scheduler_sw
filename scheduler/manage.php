@@ -4,6 +4,7 @@ require_once __DIR__ . '/../includes/auth.php';
 
 // 1. Handle AJAX Actions
 if (isset($_GET['action'])) {
+    // Original Delete Logic
     if ($_GET['action'] === 'delete' && isset($_GET['id'])) {
         $stmt = $pdo->prepare("DELETE FROM schedules WHERE id = ?");
         $stmt->execute([$_GET['id']]);
@@ -11,18 +12,18 @@ if (isset($_GET['action'])) {
         exit();
     } 
     
+    // Original Stop Logic
     if ($_GET['action'] === 'stop' && isset($_GET['id'])) {
         try {
             $pdo->beginTransaction();
-            
+            $id = $_GET['id'];
             $stmt = $pdo->prepare("SELECT * FROM schedules WHERE id = ?");
-            $stmt->execute([$_GET['id']]);
+            $stmt->execute([$id]);
             $s = $stmt->fetch();
 
             $start = new DateTime($s['start_date']);
             $end = new DateTime($s['end_date']);
             $today = new DateTime();
-            
             $totalDays = max(1, $end->diff($start)->days + 1);
             $activeDays = max(1, min($totalDays, $today->diff($start)->days + 1));
             
@@ -31,51 +32,89 @@ if (isset($_GET['action'])) {
             $remainingBudget = max(0, $s['budget_allocated'] - $burnedCost);
 
             $items = $pdo->prepare("SELECT content_item_id, platform_id, placement_id, quantity FROM schedule_items WHERE schedule_id = ?");
-            $items->execute([$_GET['id']]);
+            $items->execute([$id]);
             $inventory_log = "";
             
             foreach ($items as $item) {
-                $remainingDays = max(0, $totalDays - $activeDays);
-                $returnQty = ceil($item['quantity'] * ($remainingDays / $totalDays));
-
+                $returnQty = ceil($item['quantity'] * (max(0, $totalDays - $activeDays) / $totalDays));
                 $stmt = $pdo->prepare("UPDATE inventory SET used_qty = used_qty - ? WHERE rate_card_id = (SELECT id FROM rate_cards WHERE content_item_id = ? AND platform_id = ? AND placement_id = ? LIMIT 1)");
                 $stmt->execute([$returnQty, $item['content_item_id'], $item['platform_id'], $item['placement_id']]);
-                
                 $inventory_log .= "Item: {$item['content_item_id']} | Returned: {$returnQty}\n";
             }
             
             $pdo->prepare("UPDATE schedules SET status = 'Stopped', final_cost = ?, days_run = ?, total_days = ?, remaining_budget = ? WHERE id = ?")
-                ->execute([$burnedCost, $activeDays, $totalDays, $remainingBudget, $_GET['id']]);
+                ->execute([$burnedCost, $activeDays, $totalDays, $remainingBudget, $id]);
             
             $pdo->commit();
+            echo json_encode(['status' => 'success', 'report' => ['total_budget' => number_format($s['budget_allocated'], 2), 'active_days' => $activeDays, 'total_days' => $totalDays, 'burned_cost' => number_format($burnedCost, 2), 'remaining_budget' => number_format($remainingBudget, 2), 'inventory_details' => $inventory_log]]);
+        } catch (Exception $e) { $pdo->rollBack(); echo json_encode(['status' => 'error', 'message' => $e->getMessage()]); }
+        exit();
+    }
+
+    // REPLACE the stop_manual block in manage.php with this:
+    if ($_GET['action'] === 'stop_manual' && isset($_POST['id'])) {
+        try {
+            $pdo->beginTransaction();
+            $id = $_POST['id'];
+            $stmt = $pdo->prepare("SELECT * FROM schedules WHERE id = ?");
+            $stmt->execute([$id]);
+            $s = $stmt->fetch();
             
-            echo json_encode([
-                'status' => 'success',
-                'report' => [
-                    'total_budget' => number_format($s['budget_allocated'], 2),
-                    'active_days' => $activeDays,
-                    'total_days' => $totalDays,
-                    'burned_cost' => number_format($burnedCost, 2),
-                    'remaining_budget' => number_format($remainingBudget, 2),
-                    'inventory_details' => $inventory_log
-                ]
-            ]);
-        } catch (Exception $e) {
-            $pdo->rollBack();
-            echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
-        }
+            $start = new DateTime($s['start_date']);
+            $end = new DateTime($s['end_date']);
+            $today = new DateTime();
+            $totalDays = max(1, $end->diff($start)->days + 1);
+            $activeDays = max(1, $today->diff($start)->days + 1);
+            $autoCost = ($s['budget_allocated'] / $totalDays) * $activeDays;
+
+            $manualCosts = array_filter($_POST['daily_costs'], fn($val) => $val !== '' && $val !== null);
+            $manualTotal = array_sum($manualCosts);
+            
+            foreach ($manualCosts as $date => $val) {
+                $pdo->prepare("INSERT INTO schedule_daily_costs (schedule_id, cost_date, manual_cost) VALUES (?, ?, ?)")
+                    ->execute([$id, $date, $val]);
+            }
+
+            if (!empty($manualCosts) && $manualTotal > $autoCost) {
+                $pdo->prepare("UPDATE schedules SET status = 'Pending Approval (Cost Review)', final_cost = ? WHERE id = ?")
+                    ->execute([$manualTotal, $id]);
+                echo json_encode(['status' => 'success', 'message' => "Manual cost exceeds estimate. Sent for approval."]);
+            } else {
+                $finalCost = ($manualTotal > 0) ? $manualTotal : $autoCost;
+                
+                $items = $pdo->prepare("SELECT si.quantity, si.content_item_id, si.platform_id, si.placement_id, ci.name as content_name FROM schedule_items si JOIN content_items ci ON si.content_item_id = ci.id WHERE schedule_id = ?");
+                $items->execute([$id]);
+                $inventory_log = "";
+                foreach ($items as $item) {
+                    $returnQty = ceil($item['quantity'] * max(0, $totalDays - $activeDays) / $totalDays);
+                    $pdo->prepare("UPDATE inventory SET used_qty = used_qty - ? WHERE rate_card_id = (SELECT id FROM rate_cards WHERE content_item_id = ? AND platform_id = ? AND placement_id = ? LIMIT 1)")
+                        ->execute([$returnQty, $item['content_item_id'], $item['platform_id'], $item['placement_id']]);
+                    $inventory_log .= "Item: {$item['content_name']} | Returned: {$returnQty}\n";
+                }
+                
+                $pdo->prepare("UPDATE schedules SET status = 'Stopped', final_cost = ?, days_run = ?, total_days = ?, remaining_budget = ? WHERE id = ?")
+                    ->execute([$finalCost, $activeDays, $totalDays, max(0, $s['budget_allocated'] - $finalCost), $id]);
+
+                // RETURN THE REPORT OBJECT HERE
+                echo json_encode([
+                    'status' => 'success',
+                    'report' => [
+                        'total_budget' => number_format($s['budget_allocated'], 2),
+                        'active_days' => $activeDays,
+                        'total_days' => $totalDays,
+                        'burned_cost' => number_format($finalCost, 2),
+                        'remaining_budget' => number_format(max(0, $s['budget_allocated'] - $finalCost), 2),
+                        'inventory_details' => $inventory_log
+                    ]
+                ]);
+            }
+            $pdo->commit();
+        } catch (Exception $e) { $pdo->rollBack(); echo json_encode(['status' => 'error', 'message' => $e->getMessage()]); }
         exit();
     }
 }
 
-// 2. Fetch Schedules with assigned_team
-$schedules = $pdo->query("
-    SELECT s.*, a.agency_name, c.client_name 
-    FROM schedules s 
-    JOIN agencies a ON s.agency_id = a.id 
-    JOIN clients c ON s.client_id = c.id 
-    ORDER BY s.id DESC
-")->fetchAll();
+$schedules = $pdo->query("SELECT s.*, a.agency_name, c.client_name FROM schedules s JOIN agencies a ON s.agency_id = a.id JOIN clients c ON s.client_id = c.id ORDER BY s.id DESC")->fetchAll();
 
 include '../includes/header.php'; 
 ?>
@@ -96,6 +135,7 @@ include '../includes/header.php';
                         <option value="Active">Active</option>
                         <option value="Stopped">Stopped</option>
                         <option value="Pending Approval">Pending Approval</option>
+                        <option value="Pending Approval (Cost Review)">Pending Review</option>
                     </select>
                 </div>
             </div>
@@ -106,14 +146,7 @@ include '../includes/header.php';
         <div class="table-responsive">
             <table class="table table-hover align-middle bg-white mb-0">
                 <thead class="table-light">
-                    <tr>
-                        <th>Schedule / Ref</th>
-                        <th>Client</th>
-                        <th>Team</th>
-                        <th>Status</th>
-                        <th>Budget</th>
-                        <th class="text-center">Actions</th>
-                    </tr>
+                    <tr><th>Schedule / Ref</th><th>Client</th><th>Team</th><th>Status</th><th>Budget</th><th class="text-center">Actions</th></tr>
                 </thead>
                 <tbody id="scheduleTableBody">
                     <?php foreach($schedules as $s): ?>
@@ -125,9 +158,7 @@ include '../includes/header.php';
                         <td><?php echo htmlspecialchars($s['client_name']); ?></td>
                         <td><span class="badge bg-light text-dark border"><?php echo htmlspecialchars($s['assigned_team']); ?></span></td>
                         <td>
-                            <?php 
-                                $badgeClass = ($s['status'] == 'Active') ? 'bg-success' : (($s['status'] == 'Pending Approval') ? 'bg-warning text-dark' : 'bg-secondary');
-                            ?>
+                            <?php $badgeClass = ($s['status'] == 'Active') ? 'bg-success' : (($s['status'] == 'Pending Approval (Cost Review)') ? 'bg-danger' : (($s['status'] == 'Pending Approval') ? 'bg-warning text-dark' : 'bg-secondary')); ?>
                             <span class="badge <?php echo $badgeClass; ?>"><?php echo htmlspecialchars($s['status']); ?></span>
                         </td>
                         <td>Rs. <?php echo number_format($s['budget_allocated'], 2); ?></td>

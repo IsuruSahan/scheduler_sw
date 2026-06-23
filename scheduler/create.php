@@ -28,8 +28,17 @@ $inventory_data = $pdo->query("SELECT rate_card_id, total_capacity, used_qty FRO
                 <div class="col-md-4"><label class="form-label">Total Budget (Rs.)</label><input type="number" name="budget" id="budget_input" class="form-control" oninput="updateTotalBudget()" required></div>
                 <div class="col-md-4"><label class="form-label">Start Date</label><input type="date" name="start_date" id="start_date" class="form-control" required></div>
                 <div class="col-md-4"><label class="form-label">End Date</label><input type="date" name="end_date" id="end_date" class="form-control" required></div>
-                <div class="col-md-6"><label class="form-label">Assign Team</label><select name="assigned_team" class="form-select" required><option value="Content Editor Team">Content Editor Team</option><option value="News Team">News Team</option></select></div>
-            </div>
+<div class="col-md-6">
+    <label class="form-label d-block">Assign Team(s):</label>
+    <div class="form-check form-check-inline">
+        <input class="form-check-input" type="checkbox" name="assigned_team[]" value="Content Editor Team" id="team1" checked>
+        <label class="form-check-label" for="team1">Content Editor Team</label>
+    </div>
+    <div class="form-check form-check-inline">
+        <input class="form-check-input" type="checkbox" name="assigned_team[]" value="News Team" id="team2">
+        <label class="form-check-label" for="team2">News Team</label>
+    </div>
+</div>            </div>
             <div class="mt-4"><label class="fw-bold me-3">Mode:</label>
                 <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="mode" value="sync" id="syncMode" checked onclick="toggleMode('sync')"><label class="form-check-label" for="syncMode">Sync</label></div>
                 <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="mode" value="custom" id="customMode" onclick="toggleMode('custom')"><label class="form-check-label" for="customMode">Custom</label></div>

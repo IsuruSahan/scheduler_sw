@@ -20,7 +20,13 @@ if (!$schedule) {
     exit();
 }
 
-// 2. Fetch Schedule Items with Media
+// 2. Pre-calculate Auto-Daily-Rate for Reference
+$start = new DateTime($schedule['start_date']);
+$end = new DateTime($schedule['end_date']);
+$totalDays = max(1, $end->diff($start)->days + 1);
+$autoDailyRate = $schedule['budget_allocated'] / $totalDays;
+
+// 3. Fetch Schedule Items with Media
 $items_stmt = $pdo->prepare("
     SELECT si.*, ci.name AS content_name, p.platform_name, ap.placement_name, mf.format_name,
            GROUP_CONCAT(CONCAT(ma.file_path, '||', IFNULL(ma.file_reference, 'N/A')) SEPARATOR '###') as media_data
@@ -60,7 +66,7 @@ $statusClass = ($schedule['status'] == 'Active') ? 'bg-success' : (($schedule['s
         </div>
         <div>
             <?php if ($schedule['status'] === 'Active'): ?>
-                <button class="btn btn-warning" onclick="stopSchedule(<?php echo $id; ?>)">Stop Schedule</button>
+                <button class="btn btn-warning" onclick="openStopModal('<?php echo $schedule['start_date']; ?>', '<?php echo date('Y-m-d'); ?>', <?php echo $autoDailyRate; ?>)">Stop Schedule</button>
             <?php endif; ?>
             <a href="export_report.php?id=<?php echo $id; ?>" class="btn btn-success">Download Excel</a>
             <a href="manage.php" class="btn btn-secondary">Back to List</a>
@@ -93,27 +99,13 @@ $statusClass = ($schedule['status'] == 'Active') ? 'bg-success' : (($schedule['s
         <div class="table-responsive">
             <table class="table align-middle mb-0">
                 <thead class="table-light">
-                    <tr>
-                        <th>Program</th>
-                        <th>Platform / Placement</th>
-                        <th>Format</th>
-                        <th>Qty</th>
-                        <th>Cost</th>
-                        <th>Media Files & References</th>
-                        <th class="text-end">Actions</th>
-                    </tr>
+                    <tr><th>Program</th><th>Platform / Placement</th><th>Format</th><th>Qty</th><th>Cost</th><th>Media Files & References</th><th class="text-end">Actions</th></tr>
                 </thead>
                 <tbody>
                     <?php foreach($items as $item): 
-                        // Safely encode item data for JavaScript
                         $editData = json_encode([
-                            'id' => $item['id'],
-                            'sch_id' => $id,
-                            'c_id' => $item['content_item_id'],
-                            'p_id' => $item['platform_id'],
-                            'pl_id' => $item['placement_id'],
-                            // 'f_id' => $item['media_format_id'],
-                            'qty' => $item['quantity']
+                            'id' => $item['id'], 'sch_id' => $id, 'c_id' => $item['content_item_id'], 
+                            'p_id' => $item['platform_id'], 'pl_id' => $item['placement_id'], 'qty' => $item['quantity']
                         ]);
                     ?>
                     <tr>
@@ -125,22 +117,33 @@ $statusClass = ($schedule['status'] == 'Active') ? 'bg-success' : (($schedule['s
                         <td>
                             <?php if ($item['media_data']): 
                                 $media_list = explode('###', $item['media_data']);
-                                foreach ($media_list as $media):
-                                    list($path, $ref) = explode('||', $media); ?>
-                                    <div class="mb-1">
-                                        <a href="<?php echo htmlspecialchars($path); ?>" target="_blank" class="btn btn-sm btn-outline-info">View</a>
-                                        <small class="ms-2 text-muted fw-bold"><?php echo htmlspecialchars($ref); ?></small>
-                                    </div>
+                                foreach ($media_list as $media): list($path, $ref) = explode('||', $media); ?>
+                                    <div class="mb-1"><a href="<?php echo htmlspecialchars($path); ?>" target="_blank" class="btn btn-sm btn-outline-info">View</a> <small class="ms-2 text-muted fw-bold"><?php echo htmlspecialchars($ref); ?></small></div>
                                 <?php endforeach; else: echo '<small class="text-muted">None</small>'; endif; ?>
                         </td>
-                        <td class="text-end">
-                            <button class="btn btn-sm btn-outline-primary" onclick="openEditModal(<?php echo htmlspecialchars($editData); ?>)">Edit</button>
-                        </td>
+                        <td class="text-end"><button class="btn btn-sm btn-outline-primary" onclick="openEditModal(<?php echo htmlspecialchars($editData); ?>)">Edit</button></td>
                     </tr>
                     <?php endforeach; ?>
                 </tbody>
             </table>
         </div>
+    </div>
+</div>
+
+<div class="modal fade" id="stopScheduleModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <form id="stopForm" class="modal-content">
+            <input type="hidden" name="id" value="<?php echo $id; ?>">
+            <div class="modal-header bg-danger text-white"><h5 class="modal-title">Manual Daily Cost Entry</h5></div>
+            <div class="modal-body" style="max-height: 400px; overflow-y: auto;">
+                <p class="text-muted">Automated daily rate is: Rs. <?php echo number_format($autoDailyRate, 2); ?>. Leave empty to use auto-calculation.</p>
+                <table class="table table-bordered">
+                    <thead><tr><th>Date</th><th>Manual Cost (Rs.)</th></tr></thead>
+                    <tbody id="dailyCostRows"></tbody>
+                </table>
+            </div>
+            <div class="modal-footer"><button type="submit" class="btn btn-danger">Submit for Verification</button></div>
+        </form>
     </div>
 </div>
 
@@ -170,18 +173,55 @@ $statusClass = ($schedule['status'] == 'Active') ? 'bg-success' : (($schedule['s
 <div class="modal fade" id="reportModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header bg-info text-white"><h5 class="modal-title">Schedule Finalization Report</h5></div><div class="modal-body" id="reportContent"></div><div class="modal-footer"><button type="button" class="btn btn-primary" onclick="location.reload()">Close & Refresh</button></div></div></div></div>
 
 <script>
-function stopSchedule(id) {
-    if (!confirm('Are you sure you want to stop this schedule?')) return;
-    fetch('manage.php?action=stop&id=' + id)
-    .then(r => r.json())
-    .then(data => {
-        if (data.status === 'success') {
-            let html = `<table class="table table-bordered"><tr><th>Total Budget</th><td>Rs. ${data.report.total_budget}</td></tr><tr><th>Days Run</th><td>${data.report.active_days} / ${data.report.total_days}</td></tr><tr><th>Total Spent</th><td>Rs. ${data.report.burned_cost}</td></tr><tr><th>Remaining Budget</th><td>Rs. ${data.report.remaining_budget}</td></tr></table><h6>Inventory Released:</h6><pre class="bg-light p-2">${data.report.inventory_details}</pre>`;
-            document.getElementById('reportContent').innerHTML = html;
-            new bootstrap.Modal(document.getElementById('reportModal')).show();
-        } else { alert('Error: ' + data.message); }
-    });
+function openStopModal(startDate, endDate) {
+    const tbody = document.getElementById('dailyCostRows');
+    tbody.innerHTML = '';
+    let start = new Date(startDate);
+    let end = new Date(endDate);
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        let dateStr = d.toISOString().split('T')[0];
+        tbody.innerHTML += `<tr><td>${dateStr}</td><td><input type="number" name="daily_costs[${dateStr}]" class="form-control" step="0.01" placeholder="Auto-calculated"></td></tr>`;
+    }
+    new bootstrap.Modal(document.getElementById('stopScheduleModal')).show();
 }
+
+document.getElementById('stopForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    fetch('manage.php?action=stop_manual', { method: 'POST', body: new FormData(this) })
+    .then(r => r.json()).then(data => {
+        if (data.status === 'success') {
+            // Check if it's a full report OR just a message
+            if (data.report) {
+                // SUCCESS: Show the full breakdown modal
+                let html = `<table class="table table-bordered">
+                    <tr><th>Total Budget</th><td>Rs. ${data.report.total_budget}</td></tr>
+                    <tr><th>Days Run</th><td>${data.report.active_days} / ${data.report.total_days}</td></tr>
+                    <tr><th>Total Spent</th><td>Rs. ${data.report.burned_cost}</td></tr>
+                    <tr><th>Remaining Budget</th><td>Rs. ${data.report.remaining_budget}</td></tr>
+                </table>
+                <h6>Inventory Released:</h6>
+                <pre class="bg-light p-2">${data.report.inventory_details}</pre>`;
+                
+                document.getElementById('reportContent').innerHTML = html;
+            } else {
+                // PENDING APPROVAL: Show the specific status message
+                document.getElementById('reportContent').innerHTML = `
+                    <div class="alert alert-warning text-center">
+                        <h5>${data.message}</h5>
+                        <p>The schedule is now locked for review.</p>
+                    </div>`;
+            }
+            
+            // Hide Stop Modal and show Report Modal
+            bootstrap.Modal.getInstance(document.getElementById('stopScheduleModal')).hide();
+            new bootstrap.Modal(document.getElementById('reportModal')).show();
+            
+        } else {
+            alert('Error: ' + data.message);
+        }
+    });
+});
+
 function openEditModal(data) {
     document.getElementById('edit_item_id').value = data.id;
     document.getElementById('edit_schedule_id').value = data.sch_id;
