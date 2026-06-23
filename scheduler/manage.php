@@ -2,6 +2,11 @@
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/auth.php';
 
+function logChange($pdo, $schedule_id, $type, $old_val, $new_val) {
+    $stmt = $pdo->prepare("INSERT INTO schedule_audit_log (schedule_id, change_type, old_value, new_value) VALUES (?, ?, ?, ?)");
+    $stmt->execute([$schedule_id, $type, (string)$old_val, (string)$new_val]);
+}
+
 // 1. Handle AJAX Actions
 if (isset($_GET['action'])) {
     // Original Delete Logic
@@ -50,6 +55,90 @@ if (isset($_GET['action'])) {
         } catch (Exception $e) { $pdo->rollBack(); echo json_encode(['status' => 'error', 'message' => $e->getMessage()]); }
         exit();
     }
+
+    // In manage.php, inside the if(isset($_GET['action'])) block:
+// Budget Extension & Date Adjustment Logic
+if ($_GET['action'] === 'request_extension' && isset($_POST['id'])) {
+    try {
+        $pdo->beginTransaction();
+        $id = (int)$_POST['id'];
+        $addBudget = (float)$_POST['add_budget'];
+        $newEndDate = $_POST['new_end_date'];
+        
+        // 1. Get current schedule info
+        $stmt = $pdo->prepare("SELECT end_date, budget_allocated, start_date FROM schedules WHERE id = ?");
+        $stmt->execute([$id]);
+        $old = $stmt->fetch();
+        
+        // 2. Calculate Proportional Budget (Daily Rate * New Days)
+        $start = new DateTime($old['start_date']);
+        $oldEnd = new DateTime($old['end_date']);
+        $newEnd = new DateTime($newEndDate);
+        
+        $oldDays = max(1, $oldEnd->diff($start)->days + 1);
+        $newDays = max(1, $newEnd->diff($start)->days + 1);
+        $dailyRate = $old['budget_allocated'] / $oldDays;
+        $newBudget = ($dailyRate * $newDays) + $addBudget;
+
+        // 3. Logic: If Add Budget > 0, it's a request. If 0, it's auto-update.
+        if ($addBudget > 0) {
+            $pdo->prepare("INSERT INTO schedule_approval_requests (schedule_id, new_end_date, additional_budget, status) VALUES (?, ?, ?, 'Pending')")
+                ->execute([$id, $newEndDate, $addBudget]);
+            echo json_encode(['status' => 'success', 'message' => 'Budget increase requested. Sent to Marketing Officer.']);
+        } else {
+            // Perform the update
+            $pdo->prepare("UPDATE schedules SET end_date = ?, budget_allocated = ? WHERE id = ?")
+                ->execute([$newEndDate, $newBudget, $id]);
+            
+            // Log the change
+            logChange($pdo, $id, 'Date/Budget Adjustment', "End: {$old['end_date']} | Budget: {$old['budget_allocated']}", "End: {$newEndDate} | Budget: {$newBudget}");
+            
+            echo json_encode(['status' => 'success', 'message' => 'Schedule updated successfully.']);
+        }
+        $pdo->commit();
+    } catch (Exception $e) { 
+        $pdo->rollBack(); 
+        echo json_encode(['status' => 'error', 'message' => $e->getMessage()]); 
+    }
+    exit();
+}
+
+// Budget Reduction Logic
+if ($_GET['action'] === 'request_reduction' && isset($_POST['id'])) {
+    try {
+        $pdo->beginTransaction();
+        $id = (int)$_POST['id'];
+        $newBudget = (float)$_POST['new_budget'];
+        
+        // 1. Get current status to prevent illegal reduction
+        $stmt = $pdo->prepare("SELECT budget_allocated, final_cost FROM schedules WHERE id = ?");
+        $stmt->execute([$id]);
+        $s = $stmt->fetch();
+        
+        // 2. Validation: Cannot reduce budget below the amount already spent
+        // We use final_cost (the money already burned) as the floor
+        if ($newBudget < $s['final_cost']) {
+            throw new Exception("Cannot reduce budget below the amount already spent (Rs. " . number_format($s['final_cost'], 2) . ")");
+        }
+
+        // 3. Auto-update: Scheduler has authority to reduce budget
+        $pdo->prepare("UPDATE schedules SET budget_allocated = ? WHERE id = ?")
+            ->execute([$newBudget, $id]);
+
+            $logStmt = $pdo->prepare("
+            INSERT INTO schedule_audit_log (schedule_id, change_type, old_value, new_value) 
+            VALUES (?, 'Budget Reduction', ?, ?)
+        ");
+        $logStmt->execute([$id, $s['budget_allocated'], $newBudget]);
+        
+        $pdo->commit();
+        echo json_encode(['status' => 'success', 'message' => 'Budget reduced successfully.']);
+    } catch (Exception $e) { 
+        $pdo->rollBack(); 
+        echo json_encode(['status' => 'error', 'message' => $e->getMessage()]); 
+    }
+    exit();
+}
 
     // REPLACE the stop_manual block in manage.php with this:
     if ($_GET['action'] === 'stop_manual' && isset($_POST['id'])) {

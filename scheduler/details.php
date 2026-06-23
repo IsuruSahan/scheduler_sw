@@ -58,6 +58,8 @@ $statusClass = ($schedule['status'] == 'Active') ? 'bg-success' : (($schedule['s
 <?php endif; ?>
 
 <div class="container-fluid px-4">
+
+
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h3 class="text-primary"><?php echo htmlspecialchars($schedule['schedule_name']); ?></h3>
@@ -68,7 +70,12 @@ $statusClass = ($schedule['status'] == 'Active') ? 'bg-success' : (($schedule['s
             <?php if ($schedule['status'] === 'Active'): ?>
                 <button class="btn btn-warning" onclick="openStopModal('<?php echo $schedule['start_date']; ?>', '<?php echo date('Y-m-d'); ?>', <?php echo $autoDailyRate; ?>)">Stop Schedule</button>
             <?php endif; ?>
-            <a href="export_report.php?id=<?php echo $id; ?>" class="btn btn-success">Download Excel</a>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#extendModal">
+                Extend Schedule
+            </button>
+<button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#reduceModal">
+    Reduce Budget
+</button>            <a href="export_report.php?id=<?php echo $id; ?>" class="btn btn-success">Download Excel</a>
             <a href="manage.php" class="btn btn-secondary">Back to List</a>
         </div>
     </div>
@@ -128,6 +135,29 @@ $statusClass = ($schedule['status'] == 'Active') ? 'bg-success' : (($schedule['s
             </table>
         </div>
     </div>
+    <div class="card shadow-sm border-0 mt-4">
+    <div class="card-header bg-white py-3"><strong>Modification History</strong></div>
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+            <thead class="table-light">
+                <tr><th>Date</th><th>Activity</th><th>Previous</th><th>New</th></tr>
+            </thead>
+            <tbody>
+                <?php 
+                $logs = $pdo->prepare("SELECT * FROM schedule_audit_log WHERE schedule_id = ? ORDER BY changed_at DESC");
+                $logs->execute([$id]);
+                foreach($logs as $log): ?>
+                <tr>
+                    <td><?php echo date('d M Y H:i', strtotime($log['changed_at'])); ?></td>
+                    <td><span class="badge bg-dark"><?php echo htmlspecialchars($log['change_type']); ?></span></td>
+                    <td><?php echo htmlspecialchars($log['old_value']); ?></td>
+                    <td><?php echo htmlspecialchars($log['new_value']); ?></td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+    </div>
+</div>
 </div>
 
 <div class="modal fade" id="stopScheduleModal" tabindex="-1">
@@ -171,6 +201,46 @@ $statusClass = ($schedule['status'] == 'Active') ? 'bg-success' : (($schedule['s
 </div>
 
 <div class="modal fade" id="reportModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header bg-info text-white"><h5 class="modal-title">Schedule Finalization Report</h5></div><div class="modal-body" id="reportContent"></div><div class="modal-footer"><button type="button" class="btn btn-primary" onclick="location.reload()">Close & Refresh</button></div></div></div></div>
+
+<div class="modal fade" id="extendModal" tabindex="-1">
+    <div class="modal-dialog">
+        <form id="extendForm" class="modal-content">
+            <input type="hidden" name="id" value="<?php echo $id; ?>">
+            <div class="modal-header bg-primary text-white"><h5 class="modal-title">Extend Schedule</h5></div>
+            <div class="modal-body">
+                <div class="alert alert-info py-2">
+                    <small>Adding budget triggers an MO approval request.</small>
+                </div>
+                <label class="form-label">New End Date:</label>
+                <input type="date" name="new_end_date" class="form-control mb-2" required>
+                <label class="form-label">Additional Budget (Rs.):</label>
+                <input type="number" name="add_budget" class="form-control" step="0.01" value="0" required>
+            </div>
+            <div class="modal-footer">
+                <button type="submit" class="btn btn-primary">Submit</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal fade" id="reduceModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <form id="reduceForm" class="modal-content">
+            <input type="hidden" name="id" value="<?php echo $id; ?>">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">Reduce Budget</h5>
+            </div>
+            <div class="modal-body">
+                <label class="form-label">New Total Budget (Rs.):</label>
+                <input type="number" name="new_budget" class="form-control" step="0.01" required>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-danger">Confirm Reduction</button>
+            </div>
+        </form>
+    </div>
+</div>
 
 <script>
 function openStopModal(startDate, endDate) {
@@ -232,6 +302,30 @@ function openEditModal(data) {
     document.getElementById('edit_quantity').value = data.qty;
     new bootstrap.Modal(document.getElementById('editItemModal')).show();
 }
+document.getElementById('extendForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    fetch('manage.php?action=request_extension', { method: 'POST', body: new FormData(this) })
+    .then(r => r.json()).then(data => {
+        alert(data.message);
+        if (data.status === 'success') location.reload();
+    });
+});
+
+document.getElementById('reduceForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    fetch('manage.php?action=request_reduction', { 
+        method: 'POST', 
+        body: new FormData(this) 
+    })
+    .then(r => r.json())
+    .then(data => {
+        alert(data.message);
+        if (data.status === 'success') {
+            location.reload(); 
+        }
+    });
+});
+
 </script>
 
 <?php include '../includes/footer.php'; ?>
