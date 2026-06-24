@@ -197,6 +197,49 @@ if ($_GET['action'] === 'request_reduction' && isset($_POST['id'])) {
         } catch (Exception $e) { $pdo->rollBack(); echo json_encode(['status' => 'error', 'message' => $e->getMessage()]); }
         exit();
     }
+
+   if ($_GET['action'] === 'process_approval') {
+    $req_id = $_POST['request_id'];
+    $sch_id = $_POST['schedule_id'];
+    $action = $_POST['action'];
+    $status = $_POST['status'];
+
+    try {
+        $pdo->beginTransaction();
+
+        if ($action === 'Approved') {
+            // 1. If it's a formal budget request, update budget
+            if ($req_id > 0) {
+                $stmt = $pdo->prepare("SELECT * FROM schedule_approval_requests WHERE id = ?");
+                $stmt->execute([$req_id]);
+                $req = $stmt->fetch();
+                
+                $pdo->prepare("UPDATE schedules SET end_date = ?, budget_allocated = budget_allocated + ? WHERE id = ?")
+                    ->execute([$req['new_end_date'], $req['additional_budget'], $sch_id]);
+                
+                $pdo->prepare("UPDATE schedule_approval_requests SET status = 'Approved' WHERE id = ?")
+                    ->execute([$req_id]);
+            }
+            // 2. Always set schedule to Active
+            $pdo->prepare("UPDATE schedules SET status = 'Active' WHERE id = ?")->execute([$sch_id]);
+        } else {
+            // Reject: Just revert status
+            $pdo->prepare("UPDATE schedules SET status = 'Active' WHERE id = ?")->execute([$sch_id]);
+            if ($req_id > 0) {
+                $pdo->prepare("UPDATE schedule_approval_requests SET status = 'Rejected' WHERE id = ?")->execute([$req_id]);
+            }
+        }
+
+        $pdo->commit();
+        echo json_encode(['status' => 'success', 'message' => "Request $action successfully."]);
+    } catch (Exception $e) {
+        $pdo->rollBack();
+        echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+    }
+    exit();
+}
+
+
 }
 
 $schedules = $pdo->query("SELECT s.*, a.agency_name, c.client_name FROM schedules s JOIN agencies a ON s.agency_id = a.id JOIN clients c ON s.client_id = c.id ORDER BY s.id DESC")->fetchAll();
