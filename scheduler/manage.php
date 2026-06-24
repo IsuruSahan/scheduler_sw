@@ -56,45 +56,41 @@ if (isset($_GET['action'])) {
         exit();
     }
 
-    // In manage.php, inside the if(isset($_GET['action'])) block:
-// Budget Extension & Date Adjustment Logic
+ // Budget Extension & Date Adjustment Logic
 if ($_GET['action'] === 'request_extension' && isset($_POST['id'])) {
     try {
         $pdo->beginTransaction();
         $id = (int)$_POST['id'];
-        $addBudget = (float)$_POST['add_budget'];
+        $addBudget = (float)$_POST['add_budget']; // This might be 0
         $newEndDate = $_POST['new_end_date'];
         
         // 1. Get current schedule info
-        $stmt = $pdo->prepare("SELECT end_date, budget_allocated, start_date FROM schedules WHERE id = ?");
+        $stmt = $pdo->prepare("SELECT end_date, budget_allocated FROM schedules WHERE id = ?");
         $stmt->execute([$id]);
         $old = $stmt->fetch();
         
-        // 2. Calculate Proportional Budget (Daily Rate * New Days)
-        $start = new DateTime($old['start_date']);
-        $oldEnd = new DateTime($old['end_date']);
-        $newEnd = new DateTime($newEndDate);
-        
-        $oldDays = max(1, $oldEnd->diff($start)->days + 1);
-        $newDays = max(1, $newEnd->diff($start)->days + 1);
-        $dailyRate = $old['budget_allocated'] / $oldDays;
-        $newBudget = ($dailyRate * $newDays) + $addBudget;
-
-        // 3. Logic: If Add Budget > 0, it's a request. If 0, it's auto-update.
+        // 2. Logic:
+        // If addBudget > 0: Send to approval (as before)
+        // If addBudget == 0: Only update the End Date, keep budget exactly as it is
         if ($addBudget > 0) {
             $pdo->prepare("INSERT INTO schedule_approval_requests (schedule_id, new_end_date, additional_budget, status) VALUES (?, ?, ?, 'Pending')")
                 ->execute([$id, $newEndDate, $addBudget]);
+            
+            $pdo->prepare("UPDATE schedules SET status = 'Pending Approval' WHERE id = ?")
+                ->execute([$id]);
+                
             echo json_encode(['status' => 'success', 'message' => 'Budget increase requested. Sent to Marketing Officer.']);
         } else {
-            // Perform the update
-            $pdo->prepare("UPDATE schedules SET end_date = ?, budget_allocated = ? WHERE id = ?")
-                ->execute([$newEndDate, $newBudget, $id]);
+            // Path A: Auto-update ONLY the Date. Budget remains unchanged.
+            $pdo->prepare("UPDATE schedules SET end_date = ? WHERE id = ?")
+                ->execute([$newEndDate, $id]);
             
             // Log the change
-            logChange($pdo, $id, 'Date/Budget Adjustment', "End: {$old['end_date']} | Budget: {$old['budget_allocated']}", "End: {$newEndDate} | Budget: {$newBudget}");
+            logChange($pdo, $id, 'Date Adjustment', $old['end_date'], $newEndDate);
             
-            echo json_encode(['status' => 'success', 'message' => 'Schedule updated successfully.']);
+            echo json_encode(['status' => 'success', 'message' => 'Schedule date extended successfully. Budget remained unchanged.']);
         }
+        
         $pdo->commit();
     } catch (Exception $e) { 
         $pdo->rollBack(); 
