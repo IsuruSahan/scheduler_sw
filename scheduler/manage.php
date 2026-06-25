@@ -1,10 +1,33 @@
 <?php 
+
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/auth.php';
 
 function logChange($pdo, $schedule_id, $type, $old_val, $new_val) {
-    $stmt = $pdo->prepare("INSERT INTO schedule_audit_log (schedule_id, change_type, old_value, new_value) VALUES (?, ?, ?, ?)");
-    $stmt->execute([$schedule_id, $type, (string)$old_val, (string)$new_val]);
+    // 1. Ensure session is active
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
+
+    // 2. Capture user ID. If not set, look for it in the session.
+    $user_id = $_SESSION['user_id'] ?? null;
+
+    // 3. LOGGING DEBUG: Check what the server sees
+    error_log("DEBUG: logChange called. Session User ID: " . var_export($user_id, true));
+
+    // 4. If user_id is still NULL, we have a session issue. 
+    // You can force it to 1 (Admin) temporarily to prove the insert works.
+    $final_user_id = $user_id ? $user_id : 1; 
+
+    $stmt = $pdo->prepare("
+        INSERT INTO schedule_audit_log (schedule_id, changed_by, change_type, old_value, new_value, changed_at) 
+        VALUES (?, ?, ?, ?, ?, NOW())
+    ");
+    $stmt->execute([$schedule_id, $final_user_id, $type, (string)$old_val, (string)$new_val]);
 }
 
 // 1. Handle AJAX Actions
@@ -137,11 +160,8 @@ if ($_GET['action'] === 'request_reduction' && isset($_POST['id'])) {
             ->execute([$newBudget, $id]);
 
         // 5. Save Audit Log
-        $logStmt = $pdo->prepare("
-            INSERT INTO schedule_audit_log (schedule_id, change_type, old_value, new_value) 
-            VALUES (?, 'Budget Reduction', ?, ?)
-        ");
-        $logStmt->execute([$id, $s['budget_allocated'], $newBudget]);
+// Use your centralized logChange function instead of the manual INSERT
+            logChange($pdo, $id, 'Budget Reduction', $s['budget_allocated'], $newBudget);
         
         $pdo->commit();
         echo json_encode(['status' => 'success', 'message' => 'Budget reduced successfully.']);
@@ -248,8 +268,7 @@ if ($_GET['action'] === 'request_reduction' && isset($_POST['id'])) {
                         ->execute([$req_id]);
                         
                     // Log the approval change
-                    $logStmt = $pdo->prepare("INSERT INTO schedule_audit_log (schedule_id, change_type, old_value, new_value) VALUES (?, 'Budget Approval', ?, ?)");
-                    $logStmt->execute([$sch_id, $oldBudget, $newBudget]);
+                    logChange($pdo, $sch_id, 'Budget Approval', $oldBudget, $newBudget);
                 }
             }
             // Set schedule to Active
@@ -262,8 +281,7 @@ if ($_GET['action'] === 'request_reduction' && isset($_POST['id'])) {
                 $pdo->prepare("UPDATE schedule_approval_requests SET status = 'Rejected' WHERE id = ?")->execute([$req_id]);
                 
                 // Log the rejection
-                $logStmt = $pdo->prepare("INSERT INTO schedule_audit_log (schedule_id, change_type, old_value, new_value) VALUES (?, 'Budget Rejection', ?, ?)");
-                $logStmt->execute([$sch_id, $oldBudget, $oldBudget]);
+                logChange($pdo, $sch_id, 'Budget Rejection', $oldBudget, $oldBudget);
             }
         }
 

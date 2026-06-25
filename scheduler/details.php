@@ -33,7 +33,18 @@ $end = new DateTime($schedule['end_date']);
 $totalDays = max(1, $end->diff($start)->days + 1);
 $autoDailyRate = $schedule['budget_allocated'] / $totalDays;
 
-// 3. Fetch Schedule Items with Media
+// UPDATED: Using the correct column name 'changed_at'
+$audit_stmt = $pdo->prepare("
+    SELECT al.*, u.email as user_email
+    FROM schedule_audit_log al
+    LEFT JOIN users u ON al.changed_by = u.id
+    WHERE al.schedule_id = ?
+    ORDER BY al.changed_at DESC
+");
+$audit_stmt->execute([$id]);
+$audit_logs = $audit_stmt->fetchAll();
+
+
 $items_stmt = $pdo->prepare("
     SELECT si.*, ci.name AS content_name, p.platform_name, ap.placement_name, mf.format_name,
            GROUP_CONCAT(CONCAT(ma.file_path, '||', IFNULL(ma.file_reference, 'N/A')) SEPARATOR '###') as media_data
@@ -202,28 +213,53 @@ $statusClass = ($schedule['status'] == 'Active') ? 'bg-success' : (($schedule['s
         </div>
     </div>
 <div class="card shadow-sm border-0 mt-4">
-        <div class="card-header bg-white py-3"><strong>Modification History</strong></div>
-        <div class="table-responsive">
-            <table class="table table-sm table-striped align-middle mb-0">
-                <thead class="table-light">
-                    <tr><th>Date</th><th>Activity</th><th>Previous</th><th>New</th></tr>
-                </thead>
-                <tbody>
-                    <?php 
-                    $logs = $pdo->prepare("SELECT * FROM schedule_audit_log WHERE schedule_id = ? ORDER BY changed_at DESC");
-                    $logs->execute([$id]);
-                    foreach($logs as $log): ?>
-                    <tr>
-                        <td><?php echo date('d M Y H:i', strtotime($log['changed_at'])); ?></td>
-                        <td><span class="badge bg-dark"><?php echo htmlspecialchars($log['change_type']); ?></span></td>
-                        <td><?php echo is_numeric($log['old_value']) ? 'Rs. ' . number_format((float)$log['old_value'], 2) : htmlspecialchars($log['old_value']); ?></td>
-                        <td><?php echo is_numeric($log['new_value']) ? 'Rs. ' . number_format((float)$log['new_value'], 2) : htmlspecialchars($log['new_value']); ?></td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
+    <div class="card-header bg-white py-3"><strong>Modification History</strong></div>
+    <div class="table-responsive">
+        <table class="table table-sm table-striped align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Date</th>
+                    <th>Activity</th>
+                    <th>Previous</th>
+                    <th>New</th>
+                    <th>Changed By</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php 
+                // 1. Corrected query using your exact table columns: changed_at
+// UPDATED: Joined with 'roles' table to get the role name
+$query = "SELECT al.*, u.email as user_email, r.role_name 
+          FROM schedule_audit_log al 
+          LEFT JOIN users u ON al.changed_by = u.id 
+          LEFT JOIN roles r ON u.role_id = r.id 
+          WHERE al.schedule_id = ? 
+          ORDER BY al.changed_at DESC";
+                          
+                $logs = $pdo->prepare($query);
+                $logs->execute([$id]);
+                
+                foreach($logs as $log): ?>
+<tr>
+    <td><?php echo date('d M Y H:i', strtotime($log['changed_at'])); ?></td>
+    <td><span class="badge bg-dark"><?php echo htmlspecialchars($log['change_type']); ?></span></td>
+    <td><?php echo is_numeric($log['old_value']) ? 'Rs. ' . number_format((float)$log['old_value'], 2) : htmlspecialchars($log['old_value']); ?></td>
+    <td><?php echo is_numeric($log['new_value']) ? 'Rs. ' . number_format((float)$log['new_value'], 2) : htmlspecialchars($log['new_value']); ?></td>
+    
+    <td>
+        <?php if ($log['user_email']): ?>
+            <?php echo htmlspecialchars($log['user_email']); ?><br>
+            <small class="badge bg-info text-dark"><?php echo htmlspecialchars($log['role_name'] ?? 'No Role'); ?></small>
+        <?php else: ?>
+            System
+        <?php endif; ?>
+    </td>
+</tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
     </div>
+</div>
 </div>
 </div>
 
