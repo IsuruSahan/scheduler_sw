@@ -215,34 +215,55 @@ if ($_GET['action'] === 'request_reduction' && isset($_POST['id'])) {
     }
 
    if ($_GET['action'] === 'process_approval') {
-    $req_id = $_POST['request_id'];
-    $sch_id = $_POST['schedule_id'];
-    $action = $_POST['action'];
-    $status = $_POST['status'];
+    $req_id = (int)$_POST['request_id'];
+    $sch_id = (int)$_POST['schedule_id'];
+    $action = $_POST['action']; // 'Approved' or 'Rejected'
 
     try {
         $pdo->beginTransaction();
 
+        // 1. Fetch current budget state for logging
+        $stmtCurrent = $pdo->prepare("SELECT budget_allocated FROM schedules WHERE id = ?");
+        $stmtCurrent->execute([$sch_id]);
+        $oldBudget = (float)$stmtCurrent->fetchColumn();
+        
+        $newBudget = $oldBudget; // Default for rejection
+
         if ($action === 'Approved') {
-            // 1. If it's a formal budget request, update budget
+            // If it's a formal budget request, process it
             if ($req_id > 0) {
                 $stmt = $pdo->prepare("SELECT * FROM schedule_approval_requests WHERE id = ?");
                 $stmt->execute([$req_id]);
                 $req = $stmt->fetch();
                 
-                $pdo->prepare("UPDATE schedules SET end_date = ?, budget_allocated = budget_allocated + ? WHERE id = ?")
-                    ->execute([$req['new_end_date'], $req['additional_budget'], $sch_id]);
-                
-                $pdo->prepare("UPDATE schedule_approval_requests SET status = 'Approved' WHERE id = ?")
-                    ->execute([$req_id]);
+                if ($req) {
+                    $newBudget = $oldBudget + (float)$req['additional_budget'];
+
+                    // Update schedule
+                    $pdo->prepare("UPDATE schedules SET end_date = ?, budget_allocated = ? WHERE id = ?")
+                        ->execute([$req['new_end_date'], $newBudget, $sch_id]);
+                    
+                    // Mark request as Approved
+                    $pdo->prepare("UPDATE schedule_approval_requests SET status = 'Approved' WHERE id = ?")
+                        ->execute([$req_id]);
+                        
+                    // Log the approval change
+                    $logStmt = $pdo->prepare("INSERT INTO schedule_audit_log (schedule_id, change_type, old_value, new_value) VALUES (?, 'Budget Approval', ?, ?)");
+                    $logStmt->execute([$sch_id, $oldBudget, $newBudget]);
+                }
             }
-            // 2. Always set schedule to Active
+            // Set schedule to Active
             $pdo->prepare("UPDATE schedules SET status = 'Active' WHERE id = ?")->execute([$sch_id]);
         } else {
-            // Reject: Just revert status
+            // Reject: Just revert status and log the rejection action
             $pdo->prepare("UPDATE schedules SET status = 'Active' WHERE id = ?")->execute([$sch_id]);
+            
             if ($req_id > 0) {
                 $pdo->prepare("UPDATE schedule_approval_requests SET status = 'Rejected' WHERE id = ?")->execute([$req_id]);
+                
+                // Log the rejection
+                $logStmt = $pdo->prepare("INSERT INTO schedule_audit_log (schedule_id, change_type, old_value, new_value) VALUES (?, 'Budget Rejection', ?, ?)");
+                $logStmt->execute([$sch_id, $oldBudget, $oldBudget]);
             }
         }
 
@@ -254,7 +275,6 @@ if ($_GET['action'] === 'request_reduction' && isset($_POST['id'])) {
     }
     exit();
 }
-
 
 }
 

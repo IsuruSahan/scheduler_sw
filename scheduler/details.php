@@ -5,13 +5,17 @@ require_once __DIR__ . '/../includes/auth.php';
 $id = $_GET['id'] ?? 0;
 
 // 1. Fetch Schedule Details
+// 1. Fetch Schedule Details with days_run calculation
 $stmt = $pdo->prepare("
-    SELECT s.*, a.agency_name, c.client_name 
+    SELECT s.*, a.agency_name, c.client_name,
+           DATEDIFF(CURRENT_DATE, s.start_date) as days_run
     FROM schedules s 
     JOIN agencies a ON s.agency_id = a.id 
     JOIN clients c ON s.client_id = c.id 
     WHERE s.id = ?
 ");
+$stmt->execute([$id]);
+$schedule = $stmt->fetch();
 
 
 
@@ -273,9 +277,9 @@ $statusClass = ($schedule['status'] == 'Active') ? 'bg-success' : (($schedule['s
                 <h5 class="modal-title">Extend/Reduce Schedule</h5>
             </div>
             <div class="modal-body">
-                <div class="alert alert-info py-2">
-                    <small>Days already run: <strong><?php echo $schedule['days_run'] ?? 0; ?></strong> days.</small>
-                </div>
+<div class="alert alert-info py-2">
+    <small>Days already run: <strong><?php echo $schedule['days_run'] ?? 0; ?></strong> days.</small>
+</div>
                 
                 <label class="form-label">New End Date:</label>
                 <input type="text" id="calendarExtend" name="new_end_date" class="form-control mb-3" 

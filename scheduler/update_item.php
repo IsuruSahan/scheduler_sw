@@ -77,6 +77,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->prepare("UPDATE schedules SET status = 'Pending Approval' WHERE id = ?")->execute([$schedule_id]);
         }
 
+
+
         $pdo->commit();
         header("Location: details.php?id=$schedule_id&msg=updated");
     } catch (Exception $e) {
