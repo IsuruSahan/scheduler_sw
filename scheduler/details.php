@@ -12,6 +12,9 @@ $stmt = $pdo->prepare("
     JOIN clients c ON s.client_id = c.id 
     WHERE s.id = ?
 ");
+
+
+
 $stmt->execute([$id]);
 $schedule = $stmt->fetch();
 
@@ -42,6 +45,21 @@ $items_stmt = $pdo->prepare("
     WHERE si.schedule_id = ?
     GROUP BY si.id
 ");
+$stmt = $pdo->prepare("
+    SELECT s.budget_allocated, s.final_cost, 
+           (SELECT SUM(cost) FROM schedule_items WHERE schedule_id = s.id) as total_item_cost
+    FROM schedules s 
+    WHERE s.id = ?
+");
+$stmt->execute([$id]); // Ensure $id is available here
+$s = $stmt->fetch();
+
+// 2. Determine the safe floor (the minimum)
+// We use 0 if no costs are found yet to avoid errors
+$finalCost = (float)($s['final_cost'] ?? 0);
+$totalItemCost = (float)($s['total_item_cost'] ?? 0);
+$minAllowed = max($finalCost, $totalItemCost);
+
 $items_stmt->execute([$id]);
 $items = $items_stmt->fetchAll();
 
@@ -276,18 +294,22 @@ $statusClass = ($schedule['status'] == 'Active') ? 'bg-success' : (($schedule['s
 
 <div class="modal fade" id="reduceModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
-        <form id="reduceForm" class="modal-content">
+        <form action="manage.php?action=request_reduction" method="POST" class="modal-content">
             <input type="hidden" name="id" value="<?php echo $id; ?>">
             <div class="modal-header bg-danger text-white">
                 <h5 class="modal-title">Reduce Budget</h5>
             </div>
             <div class="modal-body">
                 <label class="form-label">New Total Budget (Rs.):</label>
-                <input type="number" name="new_budget" class="form-control" step="0.01" required>
+                <input type="number" name="new_budget" class="form-control" 
+                       step="0.01" 
+                       min="<?php echo $minAllowed; ?>" 
+                       required>
+                <small class="text-danger">Minimum allowed: Rs. <?php echo number_format($minAllowed, 2); ?></small>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="submit" class="btn btn-danger">Confirm Reduction</button>
+                <button type="button" class="btn btn-danger" onclick="submitForm(this)">Confirm Reduction</button>
             </div>
         </form>
     </div>
@@ -362,20 +384,45 @@ document.getElementById('extendForm').addEventListener('submit', function(e) {
     });
 });
 
-document.getElementById('reduceForm').addEventListener('submit', function(e) {
-    e.preventDefault();
-    fetch('manage.php?action=request_reduction', { 
-        method: 'POST', 
-        body: new FormData(this) 
+/**
+ * Generic Form Handler
+ * Works for Edit, Extend, and Reduce without needing specific IDs.
+ */
+function submitForm(btn) {
+    const form = btn.closest('form');
+    if (!form) {
+        alert("Error: Form not found.");
+        return;
+    }
+
+    // Browser-native validation (e.g., the 'min' attribute)
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+
+    const formData = new FormData(form);
+    const actionUrl = form.getAttribute('action'); 
+    
+    fetch(actionUrl, {
+        method: 'POST',
+        body: formData
     })
     .then(r => r.json())
     .then(data => {
-        alert(data.message);
         if (data.status === 'success') {
-            location.reload(); 
+            alert(data.message);
+            location.reload();
+        } else {
+            // This shows the error thrown by your PHP Exception
+            alert("Error: " + (data.message || "Operation failed"));
         }
+    })
+    .catch(err => {
+        console.error("Fetch Error:", err);
+        alert("A system error occurred.");
     });
-});
+}
 
 document.addEventListener("DOMContentLoaded", function() {
     flatpickr("#calendarExtend", {

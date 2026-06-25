@@ -103,25 +103,41 @@ if ($_GET['action'] === 'request_extension' && isset($_POST['id'])) {
 if ($_GET['action'] === 'request_reduction' && isset($_POST['id'])) {
     try {
         $pdo->beginTransaction();
+        
         $id = (int)$_POST['id'];
         $newBudget = (float)$_POST['new_budget'];
         
-        // 1. Get current status to prevent illegal reduction
-        $stmt = $pdo->prepare("SELECT budget_allocated, final_cost FROM schedules WHERE id = ?");
+        // 1. Fetch current schedule and content commitments
+        // We calculate both the money already spent (final_cost) 
+        // AND the total committed cost of items currently in the schedule
+        $stmt = $pdo->prepare("
+            SELECT s.budget_allocated, s.final_cost, 
+                   (SELECT SUM(cost) FROM schedule_items WHERE schedule_id = s.id) as total_item_cost
+            FROM schedules s 
+            WHERE s.id = ?
+        ");
         $stmt->execute([$id]);
         $s = $stmt->fetch();
         
-        // 2. Validation: Cannot reduce budget below the amount already spent
-        // We use final_cost (the money already burned) as the floor
+        if (!$s) throw new Exception("Schedule not found.");
+
+        // 2. Validation A: Cannot reduce budget below the amount already spent
         if ($newBudget < $s['final_cost']) {
             throw new Exception("Cannot reduce budget below the amount already spent (Rs. " . number_format($s['final_cost'], 2) . ")");
         }
 
-        // 3. Auto-update: Scheduler has authority to reduce budget
+        // 3. Validation B: Cannot reduce budget below the total cost of committed items
+        $minAllowed = max((float)$s['final_cost'], (float)$s['total_item_cost']);
+        if ($newBudget < $minAllowed) {
+            throw new Exception("Cannot reduce budget below total committed content costs (Rs. " . number_format($minAllowed, 2) . ")");
+        }
+
+        // 4. Update Budget
         $pdo->prepare("UPDATE schedules SET budget_allocated = ? WHERE id = ?")
             ->execute([$newBudget, $id]);
 
-            $logStmt = $pdo->prepare("
+        // 5. Save Audit Log
+        $logStmt = $pdo->prepare("
             INSERT INTO schedule_audit_log (schedule_id, change_type, old_value, new_value) 
             VALUES (?, 'Budget Reduction', ?, ?)
         ");
