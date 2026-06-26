@@ -74,8 +74,10 @@ let scheduleData = {};
 let activeDate = null;
 let activeRowIndex = null;
 let contentModal;
+let errorModal;
 document.addEventListener("DOMContentLoaded", () => {
     contentModal = new bootstrap.Modal(document.getElementById('contentModal'));
+    errorModal = new bootstrap.Modal(document.getElementById('errorModal'));
     
     // Populate Modal once
     const tbody = document.getElementById('contentModalBody');
@@ -91,6 +93,7 @@ document.addEventListener("DOMContentLoaded", () => {
 function createOptions(arr, key, selected) {
     return arr.map(i => `<option value="${i.id}" ${i.id == selected ? 'selected' : ''}>${i[key]}</option>`).join('');
 }
+
 
 function updateClients() {
     const agencyId = document.getElementById('agency_id').value;
@@ -114,29 +117,32 @@ function openContentModal(index) {
 }
 
 function selectContent(id, name) {
-    if (activeRowIndex !== null && activeDate !== null) {
-        // 1. Update the state object
+    // 1. Safety check
+    if (activeRowIndex === null || activeDate === null) return;
+
+    // 2. Hide the modal immediately to free up the UI
+    contentModal.hide();
+
+    // 3. Perform updates after a short delay to allow the modal's 
+    // fade-out animation to complete, preventing DOM conflicts.
+    setTimeout(() => {
+        // Update the state object directly
         scheduleData[activeDate][activeRowIndex].content_id = id;
         scheduleData[activeDate][activeRowIndex].content_name = name;
 
-        // 2. Render the table rows to update the UI button text
+        // Render the UI
         renderRowsForDate(activeDate);
 
-        // 3. Force calculation for this row
-        // We use setTimeout to ensure the DOM has finished rendering the new row
-        setTimeout(() => {
-            const tbody = document.getElementById('items-body');
-            // Select the specific row index
-            const row = tbody.querySelectorAll('tr')[activeRowIndex];
-            
-            if (row) {
-                calculateCost(row, activeRowIndex);
-            }
-        }, 50);
+        // Force calculation for the specific row just updated
+        // We look for the row by index in the newly rendered table
+        const tbody = document.getElementById('items-body');
+        const rows = tbody.querySelectorAll('tr');
+        const targetRow = rows[activeRowIndex];
 
-        // 4. Hide the modal
-        contentModal.hide();
-    }
+        if (targetRow) {
+            calculateCost(targetRow, activeRowIndex);
+        }
+    }, 200); 
 }
 
 function initDateRange() {
@@ -203,31 +209,55 @@ function updateTotalBudget() {
     warning.style.display = (total > budget) ? 'block' : 'none';
 }
 
+function updateScheduleState(index, key, value) {
+    scheduleData[activeDate][index][key] = value;
+    // Recalculate cost whenever a field changes
+    const row = document.querySelectorAll('#items-body tr')[index];
+    calculateCost(row, index);
+}
+
 function renderRowsForDate(date) {
     const tbody = document.getElementById('items-body');
     tbody.innerHTML = '';
     
+    if (!scheduleData[date]) return;
+
     scheduleData[date].forEach((item, index) => {
-        // Calculate current total
-        const rowTotal = item.rate * item.qty;
+        const rowTotal = (item.rate || 0) * (item.qty || 0);
         
-        tbody.innerHTML += `
-            <tr>
-                <td>
-                    <input type="hidden" class="content-id" value="${item.content_id}">
-                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openContentModal(${index})">
-                        ${item.content_name || 'Select Program'}
-                    </button>
-                </td>
-                <td><select name="schedule[${date}][platform_id][]" class="form-select" onchange="calculateCost(this.closest('tr'), ${index})">${createOptions(<?php echo json_encode($platforms); ?>, 'platform_name', item.platform_id)}</select></td>
-                <td><select name="schedule[${date}][placement_id][]" class="form-select" onchange="calculateCost(this.closest('tr'), ${index})">${createOptions(<?php echo json_encode($placements); ?>, 'placement_name', item.placement_id)}</select></td>
-                <td><select name="schedule[${date}][format_id][]" class="form-select" onchange="calculateCost(this.closest('tr'), ${index})">${createOptions(<?php echo json_encode($media_formats); ?>, 'format_name', item.format_id)}</select></td>
-                <td><input type="number" name="schedule[${date}][quantity][]" class="form-control" value="${item.qty}" oninput="calculateCost(this.closest('tr'), ${index})"></td>
-                <td>Rs. <span class="rate-display">${item.rate.toFixed(2)}</span></td>
-                <td>Rs. <span class="total-display">${rowTotal.toFixed(2)}</span></td>
-                <td><button type="button" class="btn btn-danger btn-sm" onclick="removeRow(${index})">×</button></td>
-            </tr>`;
+        // Create the row element instead of concatenating a string
+        const tr = document.createElement('tr');
+        
+        tr.innerHTML = `
+            <td>
+                <input type="hidden" name="schedule[${date}][content_id][]" value="${item.content_id}">
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openContentModal(${index})">
+                    ${item.content_name || 'Select Program'}
+                </button>
+            </td>
+            <td><select name="schedule[${date}][platform_id][]" class="form-select">${createOptions(allPlatforms, 'platform_name', item.platform_id)}</select></td>
+            <td><select name="schedule[${date}][placement_id][]" class="form-select">${createOptions(allPlacements, 'placement_name', item.placement_id)}</select></td>
+            <td><select name="schedule[${date}][format_id][]" class="form-select">${createOptions(allFormats, 'format_name', item.format_id)}</select></td>
+            <td><input type="number" name="schedule[${date}][quantity][]" class="form-control" value="${item.qty}"></td>
+            <td>Rs. <span class="rate-display">${(item.rate || 0).toFixed(2)}</span></td>
+            <td>Rs. <span class="total-display">${rowTotal.toFixed(2)}</span></td>
+            <td><button type="button" class="btn btn-danger btn-sm" onclick="removeRow(${index})">×</button></td>
+        `;
+
+        // ATTACH EVENT LISTENERS to the new inputs
+        // This ensures that the moment a user changes a value, the state is updated
+        tr.querySelectorAll('select, input').forEach(el => {
+            el.addEventListener('change', (e) => {
+                const key = e.target.name.split('[')[2].replace(']', ''); 
+                // e.g., "schedule[date][platform_id][]" -> "platform_id"
+                scheduleData[date][index][key] = e.target.value;
+                calculateCost(tr, index);
+            });
+        });
+
+        tbody.appendChild(tr);
     });
+    updateTotalBudget();
 }
 
 function calculateCost(row, index) {
@@ -291,26 +321,71 @@ function copyPreviousDate() {
     if (currentIndex <= 0) return alert("No previous date to copy from!");
 
     const previousDate = dates[currentIndex - 1];
-    
-    // Copy the exact configuration settings
-    scheduleData[activeDate] = scheduleData[previousDate].map(item => ({
-        content_id: item.content_id,
-        content_name: item.content_name,
-        platform_id: item.platform_id,
-        placement_id: item.placement_id,
-        format_id: item.format_id,
-        qty: 1, // Reset qty to 1 so the user must manually re-verify inventory
-        rate: 0 // Will be recalculated by calculateCost
-    }));
+    let hasMissingInventory = false;
 
-    // Refresh the table UI
+    // Helper to check inventory
+    const getCapacity = (content_id, platform_id, placement_id, format_id, date) => {
+        const rateItem = allRates.find(r => 
+            Number(r.content_item_id) === Number(content_id) && 
+            Number(r.platform_id) === Number(platform_id) && 
+            Number(r.placement_id) === Number(placement_id) && 
+            Number(r.media_format_id) === Number(format_id)
+        );
+        if (!rateItem) return null;
+        return allCapacity.find(c => Number(c.rate_card_id) === Number(rateItem.id) && c.capacity_date === date);
+    };
+
+    // 1. Validate and Map
+    const newItems = scheduleData[previousDate].map(item => {
+        const cap = getCapacity(item.content_id, item.platform_id, item.placement_id, item.format_id, activeDate);
+        
+        if (!cap) {
+            hasMissingInventory = true;
+            return null;
+        }
+
+        return {
+            content_id: item.content_id,
+            content_name: item.content_name,
+            platform_id: item.platform_id,
+            placement_id: item.placement_id,
+            format_id: item.format_id,
+            qty: 1,
+            rate: 0
+        };
+    });
+
+    // 2. Error handling
+    if (hasMissingInventory) {
+        document.getElementById('error-message').innerText = 
+            "Cannot copy: One or more configurations have no inventory capacity defined for " + activeDate + ".";
+        errorModal.show(); // Ensure errorModal is initialized globally
+        return; 
+    }
+
+    // 3. Apply copy
+    scheduleData[activeDate] = newItems;
     renderRowsForDate(activeDate);
     
-    // Trigger calculation for all rows to refresh Rate, Total, and Inventory check
-    const rows = document.querySelectorAll('#items-body tr');
-    rows.forEach((row, index) => {
+    // 4. Trigger calculation to refresh rates
+    document.querySelectorAll('#items-body tr').forEach((row, index) => {
         calculateCost(row, index);
     });
+
+    
+}
+
+function removeRow(index) {
+    if (!activeDate) return;
+
+    // Remove the item from the array
+    scheduleData[activeDate].splice(index, 1);
+
+    // Re-render the UI for the current date
+    renderRowsForDate(activeDate);
+    
+    // Update the total budget after deletion
+    updateTotalBudget();
 }
 </script>
 
