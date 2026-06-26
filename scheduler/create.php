@@ -9,8 +9,8 @@ $content_items = $pdo->query("SELECT id, name, type FROM content_items ORDER BY 
 $platforms = $pdo->query("SELECT * FROM platforms ORDER BY platform_name")->fetchAll();
 $placements = $pdo->query("SELECT * FROM ad_placements ORDER BY placement_name")->fetchAll();
 $media_formats = $pdo->query("SELECT * FROM media_formats ORDER BY format_name")->fetchAll();
-$inventory_data = $pdo->query("SELECT rate_card_id, total_capacity, used_qty FROM inventory")->fetchAll(PDO::FETCH_ASSOC);
-?>
+// If your table is named 'inventory_daily_capacity'
+$inventory_data = $pdo->query("SELECT rate_card_id, capacity_qty, capacity_date FROM inventory_daily_capacity")->fetchAll(PDO::FETCH_ASSOC);?>
 
 <?php include '../includes/header.php'; ?>
 
@@ -67,6 +67,8 @@ const allClients = <?php echo json_encode($clients); ?>;
 const allPlatforms = <?php echo json_encode($platforms); ?>;
 const allPlacements = <?php echo json_encode($placements); ?>;
 const allFormats = <?php echo json_encode($media_formats); ?>;
+const allCapacity = <?php echo json_encode($inventory_data); ?>; 
+
 
 let scheduleData = {}; 
 let activeDate = null;
@@ -232,32 +234,100 @@ function calculateCost(row, index) {
     const platform = row.querySelector('select[name*="platform_id"]').value;
     const placement = row.querySelector('select[name*="placement_id"]').value;
     const format = row.querySelector('select[name*="format_id"]').value;
-    const qty = parseInt(row.querySelector('input[name*="quantity"]').value) || 0;
+    const qtyInput = row.querySelector('input[name*="quantity"]');
+    const requestedQty = parseInt(qtyInput.value) || 0;
     const content_id = scheduleData[activeDate][index].content_id;
 
     if (!content_id) return;
 
-    // Use the GLOBAL allRates variable
+    // 1. Get the Rate Item
     const rateItem = allRates.find(r => 
         Number(r.content_item_id) === Number(content_id) && 
         Number(r.platform_id) === Number(platform) && 
         Number(r.placement_id) === Number(placement) && 
         Number(r.media_format_id) === Number(format)
     );
-
     const rate = rateItem ? parseFloat(rateItem.rate) : 0;
-    
-    // Update state
-    scheduleData[activeDate][index].rate = rate;
-    scheduleData[activeDate][index].qty = qty;
 
-    // Update UI
+    // 2. Find MAX CAPACITY for this specific date and rate_card_id
+    // We assume allCapacity has objects with rate_card_id and capacity_date
+const capacityItem = allCapacity.find(c => 
+        Number(c.rate_card_id) === Number(rateItem?.id) && 
+        c.capacity_date === activeDate
+    );
+    
+    const maxCapacity = capacityItem ? parseInt(capacityItem.capacity_qty) : 999; // Default 999 if no limit set
+
+    // 3. VALIDATE AND AUTO-CORRECT
+    if (requestedQty > maxCapacity) {
+        // Show the error modal
+        document.getElementById('error-message').innerText = 
+            "Quantity exceeds limit for " + activeDate + ". Max allowed: " + maxCapacity + ".";
+        
+        // Use the Bootstrap Modal instance to show
+        new bootstrap.Modal(document.getElementById('errorModal')).show();
+        
+        // Auto-apply max
+        qtyInput.value = maxCapacity;
+    }
+
+    // 4. Update UI
+    const finalQty = parseInt(qtyInput.value) || 0;
+    scheduleData[activeDate][index].rate = rate;
+    scheduleData[activeDate][index].qty = finalQty;
+
     row.querySelector('.rate-display').innerText = rate.toFixed(2);
-    row.querySelector('.total-display').innerText = (rate * qty).toFixed(2);
+    row.querySelector('.total-display').innerText = (rate * finalQty).toFixed(2);
     
     updateTotalBudget();
 }
+
+function copyPreviousDate() {
+    if (!activeDate) return alert("Select a date first!");
+
+    const dates = Object.keys(scheduleData).sort();
+    const currentIndex = dates.indexOf(activeDate);
+
+    if (currentIndex <= 0) return alert("No previous date to copy from!");
+
+    const previousDate = dates[currentIndex - 1];
+    
+    // Copy the exact configuration settings
+    scheduleData[activeDate] = scheduleData[previousDate].map(item => ({
+        content_id: item.content_id,
+        content_name: item.content_name,
+        platform_id: item.platform_id,
+        placement_id: item.placement_id,
+        format_id: item.format_id,
+        qty: 1, // Reset qty to 1 so the user must manually re-verify inventory
+        rate: 0 // Will be recalculated by calculateCost
+    }));
+
+    // Refresh the table UI
+    renderRowsForDate(activeDate);
+    
+    // Trigger calculation for all rows to refresh Rate, Total, and Inventory check
+    const rows = document.querySelectorAll('#items-body tr');
+    rows.forEach((row, index) => {
+        calculateCost(row, index);
+    });
+}
 </script>
+
+<div class="modal fade" id="errorModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title">Inventory Limit Exceeded</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="error-message"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <div class="modal fade" id="contentModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg">
