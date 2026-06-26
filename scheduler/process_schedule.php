@@ -11,100 +11,60 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 try {
     $pdo->beginTransaction();
 
-    // 1. Ensure uploads directory exists and is writable
     $uploadDir = '../uploads/';
     if (!is_dir($uploadDir)) { mkdir($uploadDir, 0777, true); }
-    if (!is_writable($uploadDir)) { throw new Exception("Server Error: Upload directory is not writable."); }
 
-    // 2. Pre-calculate total cost to determine status
-    $total_calculated_cost = 0;
-    foreach ($_POST['row_ids'] as $idx => $rowId) {
-        $stmt = $pdo->prepare("SELECT rate FROM rate_cards WHERE content_item_id = ? AND platform_id = ? AND placement_id = ? AND media_format_id = ?");
-        $stmt->execute([$_POST['content_item_id'][$idx], $_POST['platform_id'][$idx], $_POST['placement_id'][$idx], $_POST['media_format_id'][$idx]]);
-        $rate = $stmt->fetchColumn() ?: 0;
-        $total_calculated_cost += ($rate * (int)$_POST['quantity'][$idx]);
-    }
-
-    // Determine status (Budget exceeded OR manual approval trigger)
-    $budget = floatval($_POST['budget']);
-    $status = ($total_calculated_cost > $budget || $_POST['action'] === 'approve') ? 'Pending Approval' : 'Active';
-
-    // 3. Handle Team selection (convert checkbox array to string)
+    // 1. Insert Schedule Header
     $assigned_teams = isset($_POST['assigned_team']) ? implode(', ', $_POST['assigned_team']) : 'Content Editor Team';
-
-    // 4. Insert Schedule Header
     $stmt = $pdo->prepare("
         INSERT INTO schedules (agency_id, client_id, schedule_name, reference_no, assigned_team, budget_allocated, start_date, end_date, created_by, status) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ");
-    
     $stmt->execute([
         $_POST['agency_id'], $_POST['client_id'], $_POST['schedule_name'], $_POST['reference_no'],
-        $assigned_teams, $budget, $_POST['start_date'], $_POST['end_date'], $_SESSION['user_id'], $status
+        $assigned_teams, floatval($_POST['budget']), $_POST['start_date'], $_POST['end_date'], $_SESSION['user_id'], 'Active'
     ]);
     $schedule_id = $pdo->lastInsertId();
 
-    // 5. Loop through rows to insert items and update inventory
-    foreach ($_POST['row_ids'] as $idx => $rowId) {
-        $stmt = $pdo->prepare("
-            SELECT r.id as rate_card_id, r.rate, i.total_capacity, i.used_qty 
-            FROM rate_cards r
-            LEFT JOIN inventory i ON r.id = i.rate_card_id
-            WHERE r.platform_id = ? AND r.placement_id = ? AND r.content_item_id = ? AND r.media_format_id = ?
-        ");
-        $stmt->execute([$_POST['platform_id'][$idx], $_POST['placement_id'][$idx], $_POST['content_item_id'][$idx], $_POST['media_format_id'][$idx]]);
-        $data = $stmt->fetch();
+    // 2. Loop through nested schedule data: schedule[date][field][]
+    if (!isset($_POST['schedule'])) throw new Exception("No schedule items provided.");
 
-        if (!$data) throw new Exception("Rate card config missing for row " . ($idx + 1));
-        
-        $qty = (int)$_POST['quantity'][$idx];
-        if ($qty > (($data['total_capacity'] ?? 0) - ($data['used_qty'] ?? 0))) {
-            throw new Exception("Row " . ($idx + 1) . " exceeds available inventory.");
-        }
+    foreach ($_POST['schedule'] as $date => $items) {
+        foreach ($items['content_id'] as $idx => $cid) {
+            $qty = (int)$items['quantity'][$idx];
+            $pid = $items['platform_id'][$idx];
+            $plid = $items['placement_id'][$idx];
+            $fid = $items['format_id'][$idx];
 
-        $stmt = $pdo->prepare("INSERT INTO schedule_items (schedule_id, content_item_id, platform_id, placement_id, quantity, cost) VALUES (?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$schedule_id, $_POST['content_item_id'][$idx], $_POST['platform_id'][$idx], $_POST['placement_id'][$idx], $qty, ($data['rate'] * $qty)]);
-        $item_id = $pdo->lastInsertId();
+            // A. Get Rate Card ID
+            $stmt = $pdo->prepare("SELECT id, rate FROM rate_cards WHERE content_item_id = ? AND platform_id = ? AND placement_id = ? AND media_format_id = ?");
+            $stmt->execute([$cid, $pid, $plid, $fid]);
+            $rc = $stmt->fetch();
+            if (!$rc) throw new Exception("Rate card config missing for $date.");
 
-        $pdo->prepare("UPDATE inventory SET used_qty = used_qty + ? WHERE rate_card_id = ?")->execute([$qty, $data['rate_card_id']]);
-        
-        // 6. Handle File Uploads
-        $mode = $_POST['mode'];
-        $filesToProcess = [];
-
-        if (isset($_FILES['media']['error'])) {
-            $errors = ($mode === 'sync') ? $_FILES['media']['error']['sync'] : $_FILES['media']['error'][$rowId] ?? [];
-            foreach((array)$errors as $err) {
-                if ($err !== UPLOAD_ERR_OK && $err !== UPLOAD_ERR_NO_FILE) throw new Exception("Upload Error: " . $err);
+            // B. Validate Daily Inventory from inventory_daily_capacity table
+            $stmt = $pdo->prepare("SELECT capacity_qty FROM inventory_daily_capacity WHERE rate_card_id = ? AND capacity_date = ?");
+            $stmt->execute([$rc['id'], $date]);
+            $limit = (int)$stmt->fetchColumn();
+            
+            if ($qty > $limit) {
+                throw new Exception("Inventory exhausted on $date. Available: $limit, Requested: $qty.");
             }
-        }
 
-        if ($mode === 'sync' ? isset($_FILES['media']['name']['sync']) : isset($_FILES['media']['name'][$rowId])) {
-            $key = ($mode === 'sync') ? 'sync' : $rowId;
-            foreach ($_FILES['media']['name'][$key] as $i => $name) {
-                if ($name) $filesToProcess[] = ['name' => $name, 'tmp' => $_FILES['media']['tmp_name'][$key][$i], 'ref' => $_POST['ref'][$key][$i] ?? ''];
-            }
-        }
-
-        foreach ($filesToProcess as $file) {
-            $target = $uploadDir . time() . '_' . preg_replace('/[^A-Za-z0-9.\-]/', '_', $file['name']);
-            if (is_uploaded_file($file['tmp']) && move_uploaded_file($file['tmp'], $target)) {
-                $pdo->prepare("INSERT INTO media_attachments (schedule_item_id, file_path, file_reference) VALUES (?, ?, ?)")
-                    ->execute([$item_id, $target, $file['ref']]);
-            } else {
-                throw new Exception("File upload failed for " . $file['name']);
-            }
+            // C. Insert Item with scheduled_date
+            $stmt = $pdo->prepare("INSERT INTO schedule_items (schedule_id, content_item_id, platform_id, placement_id, quantity, cost, scheduled_date) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$schedule_id, $cid, $pid, $plid, $qty, ($rc['rate'] * $qty), $date]);
+            
+            // D. Update Inventory used_qty
+            $pdo->prepare("UPDATE inventory SET used_qty = used_qty + ? WHERE rate_card_id = ?")->execute([$qty, $rc['id']]);
         }
     }
 
     $pdo->commit();
-    if (ob_get_length()) ob_clean();
-    echo json_encode(['status' => 'success', 'message' => ($status === 'Pending Approval' ? 'Budget exceeded. Sent for approval.' : 'Schedule created successfully!')]);
-    exit();
+    echo json_encode(['status' => 'success', 'message' => 'Schedule created successfully with daily inventory validation.']);
 
 } catch (Exception $e) {
     if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
-    if (ob_get_length()) ob_clean();
     echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
-    exit();
 }
+?>
