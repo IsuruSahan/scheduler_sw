@@ -40,6 +40,8 @@ $inventory_data = $pdo->query("
 include '../includes/header.php'; 
 ?>
 
+
+
 <div class="container-fluid px-4">
     <h3 class="mb-4">Inventory Management</h3>
     
