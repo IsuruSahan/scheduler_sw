@@ -14,6 +14,8 @@ $inventory_data = $pdo->query("SELECT rate_card_id, capacity_qty, capacity_date 
 
 <?php include '../includes/header.php'; ?>
 
+
+
 <div class="container-fluid px-4">
     <h3 class="mb-4">Create New Schedule</h3>
     
@@ -260,17 +262,15 @@ function renderRowsForDate(date) {
     updateTotalBudget();
 }
 
-function calculateCost(row, index) {
+async function calculateCost(row, index) {
     const platform = row.querySelector('select[name*="platform_id"]').value;
     const placement = row.querySelector('select[name*="placement_id"]').value;
     const format = row.querySelector('select[name*="format_id"]').value;
     const qtyInput = row.querySelector('input[name*="quantity"]');
     const requestedQty = parseInt(qtyInput.value) || 0;
     
-    // Safety: ensure scheduleData exists
     if (!scheduleData[activeDate] || !scheduleData[activeDate][index]) return;
     const content_id = scheduleData[activeDate][index].content_id;
-
     if (!content_id) return;
 
     // 1. Get Rate
@@ -282,28 +282,38 @@ function calculateCost(row, index) {
     );
     const rate = rateItem ? parseFloat(rateItem.rate) : 0;
 
-    // 2. Get GLOBAL CAPACITY (Removed date check)
-    const capacityItem = allCapacity.find(c => Number(c.rate_card_id) === Number(rateItem?.id));
-    
-    const maxCapacity = capacityItem ? parseInt(capacityItem.capacity_qty) : 999; 
+    // 2. Fetch Usage from Server to get "Remaining"
+    try {
+        const response = await fetch(`../admin/get_usage.php?date=${activeDate}`);
+        const usageData = await response.json();
+        const alreadyUsed = parseInt(usageData[rateItem.id]) || 0;
+        
+        // Get Total Capacity
+        const capacityItem = allCapacity.find(c => Number(c.rate_card_id) === Number(rateItem?.id));
+        const maxCapacity = capacityItem ? parseInt(capacityItem.capacity_qty) : 999;
+        const remaining = maxCapacity - alreadyUsed;
 
-    // 3. Validation
-    if (requestedQty > maxCapacity) {
-        document.getElementById('error-message').innerText = 
-            "Quantity exceeds global daily limit. Max allowed: " + maxCapacity + ".";
-        errorModal.show();
-        qtyInput.value = maxCapacity;
+        // 3. Validation
+        if (requestedQty > remaining) {
+            document.getElementById('error-message').innerText = 
+                "Quantity exceeds remaining inventory for " + activeDate + ". Remaining: " + remaining + ".";
+            errorModal.show();
+            qtyInput.value = remaining > 0 ? remaining : 0;
+        }
+
+        // 4. Update UI
+        const finalQty = parseInt(qtyInput.value) || 0;
+        scheduleData[activeDate][index].rate = rate;
+        scheduleData[activeDate][index].qty = finalQty;
+
+        row.querySelector('.rate-display').innerText = rate.toFixed(2);
+        row.querySelector('.total-display').innerText = (rate * finalQty).toFixed(2);
+        
+        updateTotalBudget();
+
+    } catch (error) {
+        console.error("Inventory check failed:", error);
     }
-
-    // 4. Update UI
-    const finalQty = parseInt(qtyInput.value) || 0;
-    scheduleData[activeDate][index].rate = rate;
-    scheduleData[activeDate][index].qty = finalQty;
-
-    row.querySelector('.rate-display').innerText = rate.toFixed(2);
-    row.querySelector('.total-display').innerText = (rate * finalQty).toFixed(2);
-    
-    updateTotalBudget();
 }
 
 function copyPreviousDate() {

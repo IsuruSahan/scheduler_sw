@@ -3,6 +3,7 @@ header('Content-Type: application/json');
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/auth.php';
 
+// Ensure the request is POST
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     echo json_encode(['status' => 'error', 'message' => 'Invalid request method.']);
     exit();
@@ -12,60 +13,82 @@ try {
     $pdo->beginTransaction();
 
     // 1. Insert Schedule Header
+    // Capture assigned teams or default to 'Content Editor Team'
     $assigned_teams = isset($_POST['assigned_team']) ? implode(', ', $_POST['assigned_team']) : 'Content Editor Team';
+    
     $stmt = $pdo->prepare("
         INSERT INTO schedules (agency_id, client_id, schedule_name, reference_no, assigned_team, budget_allocated, start_date, end_date, created_by, status) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active')
     ");
+    
     $stmt->execute([
-        $_POST['agency_id'], $_POST['client_id'], $_POST['schedule_name'], $_POST['reference_no'],
-        $assigned_teams, floatval($_POST['budget']), $_POST['start_date'], $_POST['end_date'], $_SESSION['user_id'], 'Active'
+        $_POST['agency_id'], 
+        $_POST['client_id'], 
+        $_POST['schedule_name'], 
+        $_POST['reference_no'],
+        $assigned_teams, 
+        floatval($_POST['budget']), 
+        $_POST['start_date'], 
+        $_POST['end_date'], 
+        $_SESSION['user_id']
     ]);
+    
     $schedule_id = $pdo->lastInsertId();
 
-    // 2. Loop through nested schedule data
-    if (!isset($_POST['schedule'])) throw new Exception("No schedule items provided.");
+    // 2. Loop through nested schedule data from the POST request
+    if (!isset($_POST['schedule'])) {
+        throw new Exception("No schedule items provided in the request.");
+    }
 
     foreach ($_POST['schedule'] as $date => $items) {
+        // Iterate through content items scheduled for this specific date
         foreach ($items['content_id'] as $idx => $cid) {
             $qty = (int)$items['quantity'][$idx];
             $pid = $items['platform_id'][$idx];
             $plid = $items['placement_id'][$idx];
             $fid = $items['format_id'][$idx];
 
-            // A. Get Rate Card ID
+            // A. Get Rate Card ID and Rate
             $stmt = $pdo->prepare("SELECT id, rate FROM rate_cards WHERE content_item_id = ? AND platform_id = ? AND placement_id = ? AND media_format_id = ?");
             $stmt->execute([$cid, $pid, $plid, $fid]);
             $rc = $stmt->fetch();
-            if (!$rc) throw new Exception("Rate card config missing for $date.");
+            
+            if (!$rc) {
+                throw new Exception("Rate card configuration missing for items on $date.");
+            }
 
-            // B. Validate Daily Inventory (GLOBAL CAPACITY LOGIC)
-            // 1. Get the Global limit for this Rate Card
+            // B. Validate Global Daily Capacity
+            // 1. Fetch the Global Capacity limit for this specific Rate Card
             $stmt = $pdo->prepare("SELECT capacity_qty FROM inventory_daily_capacity WHERE rate_card_id = ?");
             $stmt->execute([$rc['id']]);
             $limit = (int)$stmt->fetchColumn(); 
             
-            // 2. Calculate what has ALREADY been used for THIS SPECIFIC DATE
+            // 2. Dynamically calculate existing usage for this specific date
             $stmt = $pdo->prepare("SELECT SUM(quantity) FROM schedule_items WHERE rate_card_id = ? AND scheduled_date = ?");
             $stmt->execute([$rc['id'], $date]);
             $already_used = (int)$stmt->fetchColumn();
             
-            // 3. Validation: (Already Used + Current Request) > Global Limit
+            // 3. Validation Logic: (Existing Bookings + Current Request) vs Global Capacity
             if (($already_used + $qty) > $limit) {
-                throw new Exception("Inventory exhausted on $date. Available: " . ($limit - $already_used) . ", Requested: $qty.");
+                throw new Exception("Inventory exhausted on $date. Capacity: $limit, Currently Used: $already_used, Requested: $qty.");
             }
 
-            // C. Insert Item
+            // C. Insert Schedule Item
+            // We store the rate_card_id here to make the inventory dashboard lookups efficient
             $stmt = $pdo->prepare("INSERT INTO schedule_items (schedule_id, content_item_id, platform_id, placement_id, quantity, cost, scheduled_date, rate_card_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([$schedule_id, $cid, $pid, $plid, $qty, ($rc['rate'] * $qty), $date, $rc['id']]);
         }
     }
 
+    // Commit transaction if all inserts passed validation
     $pdo->commit();
     echo json_encode(['status' => 'success', 'message' => 'Schedule created successfully with global inventory validation.']);
 
 } catch (Exception $e) {
-    if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
+    // Rollback if any error occurs to maintain data integrity
+    if (isset($pdo) && $pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
     echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
 }
 ?>
