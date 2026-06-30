@@ -266,11 +266,14 @@ function calculateCost(row, index) {
     const format = row.querySelector('select[name*="format_id"]').value;
     const qtyInput = row.querySelector('input[name*="quantity"]');
     const requestedQty = parseInt(qtyInput.value) || 0;
+    
+    // Safety: ensure scheduleData exists
+    if (!scheduleData[activeDate] || !scheduleData[activeDate][index]) return;
     const content_id = scheduleData[activeDate][index].content_id;
 
     if (!content_id) return;
 
-    // 1. Get the Rate Item
+    // 1. Get Rate
     const rateItem = allRates.find(r => 
         Number(r.content_item_id) === Number(content_id) && 
         Number(r.platform_id) === Number(platform) && 
@@ -279,25 +282,16 @@ function calculateCost(row, index) {
     );
     const rate = rateItem ? parseFloat(rateItem.rate) : 0;
 
-    // 2. Find MAX CAPACITY for this specific date and rate_card_id
-    // We assume allCapacity has objects with rate_card_id and capacity_date
-const capacityItem = allCapacity.find(c => 
-        Number(c.rate_card_id) === Number(rateItem?.id) && 
-        c.capacity_date === activeDate
-    );
+    // 2. Get GLOBAL CAPACITY (Removed date check)
+    const capacityItem = allCapacity.find(c => Number(c.rate_card_id) === Number(rateItem?.id));
     
-    const maxCapacity = capacityItem ? parseInt(capacityItem.capacity_qty) : 999; // Default 999 if no limit set
+    const maxCapacity = capacityItem ? parseInt(capacityItem.capacity_qty) : 999; 
 
-    // 3. VALIDATE AND AUTO-CORRECT
+    // 3. Validation
     if (requestedQty > maxCapacity) {
-        // Show the error modal
         document.getElementById('error-message').innerText = 
-            "Quantity exceeds limit for " + activeDate + ". Max allowed: " + maxCapacity + ".";
-        
-        // Use the Bootstrap Modal instance to show
-        new bootstrap.Modal(document.getElementById('errorModal')).show();
-        
-        // Auto-apply max
+            "Quantity exceeds global daily limit. Max allowed: " + maxCapacity + ".";
+        errorModal.show();
         qtyInput.value = maxCapacity;
     }
 
@@ -324,16 +318,19 @@ function copyPreviousDate() {
     let hasMissingInventory = false;
 
     // Helper to check inventory
-    const getCapacity = (content_id, platform_id, placement_id, format_id, date) => {
-        const rateItem = allRates.find(r => 
-            Number(r.content_item_id) === Number(content_id) && 
-            Number(r.platform_id) === Number(platform_id) && 
-            Number(r.placement_id) === Number(placement_id) && 
-            Number(r.media_format_id) === Number(format_id)
-        );
-        if (!rateItem) return null;
-        return allCapacity.find(c => Number(c.rate_card_id) === Number(rateItem.id) && c.capacity_date === date);
-    };
+ // Inside copyPreviousDate, update the helper:
+const getCapacity = (content_id, platform_id, placement_id, format_id) => {
+    const rateItem = allRates.find(r => 
+        Number(r.content_item_id) === Number(content_id) && 
+        Number(r.platform_id) === Number(platform_id) && 
+        Number(r.placement_id) === Number(placement_id) && 
+        Number(r.media_format_id) === Number(format_id)
+    );
+    if (!rateItem) return null;
+    
+    // Now just check if a global capacity entry exists for this rate_card_id
+    return allCapacity.find(c => Number(c.rate_card_id) === Number(rateItem.id));
+};
 
     // 1. Validate and Map
     const newItems = scheduleData[previousDate].map(item => {

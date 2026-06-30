@@ -11,9 +11,6 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 try {
     $pdo->beginTransaction();
 
-    $uploadDir = '../uploads/';
-    if (!is_dir($uploadDir)) { mkdir($uploadDir, 0777, true); }
-
     // 1. Insert Schedule Header
     $assigned_teams = isset($_POST['assigned_team']) ? implode(', ', $_POST['assigned_team']) : 'Content Editor Team';
     $stmt = $pdo->prepare("
@@ -26,7 +23,7 @@ try {
     ]);
     $schedule_id = $pdo->lastInsertId();
 
-    // 2. Loop through nested schedule data: schedule[date][field][]
+    // 2. Loop through nested schedule data
     if (!isset($_POST['schedule'])) throw new Exception("No schedule items provided.");
 
     foreach ($_POST['schedule'] as $date => $items) {
@@ -42,26 +39,30 @@ try {
             $rc = $stmt->fetch();
             if (!$rc) throw new Exception("Rate card config missing for $date.");
 
-            // B. Validate Daily Inventory from inventory_daily_capacity table
-            $stmt = $pdo->prepare("SELECT capacity_qty FROM inventory_daily_capacity WHERE rate_card_id = ? AND capacity_date = ?");
-            $stmt->execute([$rc['id'], $date]);
-            $limit = (int)$stmt->fetchColumn();
+            // B. Validate Daily Inventory (GLOBAL CAPACITY LOGIC)
+            // 1. Get the Global limit for this Rate Card
+            $stmt = $pdo->prepare("SELECT capacity_qty FROM inventory_daily_capacity WHERE rate_card_id = ?");
+            $stmt->execute([$rc['id']]);
+            $limit = (int)$stmt->fetchColumn(); 
             
-            if ($qty > $limit) {
-                throw new Exception("Inventory exhausted on $date. Available: $limit, Requested: $qty.");
+            // 2. Calculate what has ALREADY been used for THIS SPECIFIC DATE
+            $stmt = $pdo->prepare("SELECT SUM(quantity) FROM schedule_items WHERE rate_card_id = ? AND scheduled_date = ?");
+            $stmt->execute([$rc['id'], $date]);
+            $already_used = (int)$stmt->fetchColumn();
+            
+            // 3. Validation: (Already Used + Current Request) > Global Limit
+            if (($already_used + $qty) > $limit) {
+                throw new Exception("Inventory exhausted on $date. Available: " . ($limit - $already_used) . ", Requested: $qty.");
             }
 
-            // C. Insert Item with scheduled_date
-            $stmt = $pdo->prepare("INSERT INTO schedule_items (schedule_id, content_item_id, platform_id, placement_id, quantity, cost, scheduled_date) VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$schedule_id, $cid, $pid, $plid, $qty, ($rc['rate'] * $qty), $date]);
-            
-            // D. Update Inventory used_qty
-            $pdo->prepare("UPDATE inventory SET used_qty = used_qty + ? WHERE rate_card_id = ?")->execute([$qty, $rc['id']]);
+            // C. Insert Item
+            $stmt = $pdo->prepare("INSERT INTO schedule_items (schedule_id, content_item_id, platform_id, placement_id, quantity, cost, scheduled_date, rate_card_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$schedule_id, $cid, $pid, $plid, $qty, ($rc['rate'] * $qty), $date, $rc['id']]);
         }
     }
 
     $pdo->commit();
-    echo json_encode(['status' => 'success', 'message' => 'Schedule created successfully with daily inventory validation.']);
+    echo json_encode(['status' => 'success', 'message' => 'Schedule created successfully with global inventory validation.']);
 
 } catch (Exception $e) {
     if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
