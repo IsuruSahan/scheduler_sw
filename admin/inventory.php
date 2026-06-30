@@ -3,6 +3,23 @@ require_once '../config/config.php';
 session_start();
 if ($_SESSION['role'] !== 'Admin') { header("Location: " . BASE_URL . "index.php"); exit(); }
 
+
+// 1. Handle Global Capacity Update
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_global_qty'])) {
+    // DEBUG: Uncomment the line below to see if data is arriving
+    // die(print_r($_POST)); 
+
+    $rate_card_id = (int)$_POST['rate_card_id'];
+    $new_capacity = (int)$_POST['qty'];
+    
+    $stmt = $pdo->prepare("INSERT INTO inventory_daily_capacity (rate_card_id, capacity_qty) VALUES (?, ?) ON DUPLICATE KEY UPDATE capacity_qty = ?");
+    if ($stmt->execute([$rate_card_id, $new_capacity, $new_capacity])) {
+        header("Location: inventory.php?status=success");
+        exit();
+    } else {
+        die("Database update failed.");
+    }
+}
 // 2. Handle AJAX Edit
 if (isset($_GET['action']) && $_GET['action'] === 'ajax_edit') {
     header('Content-Type: application/json');
