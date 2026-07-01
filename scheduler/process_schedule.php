@@ -77,6 +77,18 @@ try {
             // We store the rate_card_id here to make the inventory dashboard lookups efficient
             $stmt = $pdo->prepare("INSERT INTO schedule_items (schedule_id, content_item_id, platform_id, placement_id, quantity, cost, scheduled_date, rate_card_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([$schedule_id, $cid, $pid, $plid, $qty, ($rc['rate'] * $qty), $date, $rc['id']]);
+            $schedule_item_id = $pdo->lastInsertId();
+
+            if (!empty($items['media_ids'][$idx])) {
+                $media_ids = explode(',', $items['media_ids'][$idx]);
+                $stmt_media = $pdo->prepare("INSERT INTO schedule_item_media (schedule_item_id, media_id) VALUES (?, ?)");
+                foreach ($media_ids as $mid) {
+                    if (!empty($mid)) { // Ensure ID is not empty
+                        $stmt_media->execute([$schedule_item_id, $mid]);
+                    }
+                }
+            }
+            
         }
     }
 

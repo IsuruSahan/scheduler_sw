@@ -9,7 +9,7 @@ $content_items = $pdo->query("SELECT id, name, type FROM content_items ORDER BY 
 $platforms = $pdo->query("SELECT * FROM platforms ORDER BY platform_name")->fetchAll();
 $placements = $pdo->query("SELECT * FROM ad_placements ORDER BY placement_name")->fetchAll();
 $media_formats = $pdo->query("SELECT * FROM media_formats ORDER BY format_name")->fetchAll();
-// If your table is named 'inventory_daily_capacity'
+$media_library = $pdo->query("SELECT * FROM media_library ORDER BY reference_no, schedule_name")->fetchAll();
 $inventory_data = $pdo->query("SELECT rate_card_id, capacity_qty, capacity_date FROM inventory_daily_capacity")->fetchAll(PDO::FETCH_ASSOC);?>
 
 <?php include '../includes/header.php'; ?>
@@ -49,6 +49,7 @@ $inventory_data = $pdo->query("SELECT rate_card_id, capacity_qty, capacity_date 
         <th>Placement</th>
         <th>Format</th>
         <th>Qty</th>
+        <th>Media</th>
         <th>Rate</th>
         <th>Total</th>
         <th>Action</th>
@@ -230,21 +231,30 @@ function renderRowsForDate(date) {
         // Create the row element instead of concatenating a string
         const tr = document.createElement('tr');
         
-        tr.innerHTML = `
-            <td>
-                <input type="hidden" name="schedule[${date}][content_id][]" value="${item.content_id}">
-                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openContentModal(${index})">
-                    ${item.content_name || 'Select Program'}
-                </button>
-            </td>
-            <td><select name="schedule[${date}][platform_id][]" class="form-select">${createOptions(allPlatforms, 'platform_name', item.platform_id)}</select></td>
-            <td><select name="schedule[${date}][placement_id][]" class="form-select">${createOptions(allPlacements, 'placement_name', item.placement_id)}</select></td>
-            <td><select name="schedule[${date}][format_id][]" class="form-select">${createOptions(allFormats, 'format_name', item.format_id)}</select></td>
-            <td><input type="number" name="schedule[${date}][quantity][]" class="form-control" value="${item.qty}"></td>
-            <td>Rs. <span class="rate-display">${(item.rate || 0).toFixed(2)}</span></td>
-            <td>Rs. <span class="total-display">${rowTotal.toFixed(2)}</span></td>
-            <td><button type="button" class="btn btn-danger btn-sm" onclick="removeRow(${index})">×</button></td>
-        `;
+tr.innerHTML = `
+    <td>
+        <input type="hidden" name="schedule[${date}][content_id][]" value="${item.content_id}">
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openContentModal(${index})">
+            ${item.content_name || 'Select Program'}
+        </button>
+    </td>
+    <td><select name="schedule[${date}][platform_id][]" class="form-select">${createOptions(allPlatforms, 'platform_name', item.platform_id)}</select></td>
+    <td><select name="schedule[${date}][placement_id][]" class="form-select">${createOptions(allPlacements, 'placement_name', item.placement_id)}</select></td>
+    <td><select name="schedule[${date}][format_id][]" class="form-select">${createOptions(allFormats, 'format_name', item.format_id)}</select></td>
+    <td><input type="number" name="schedule[${date}][quantity][]" class="form-control" value="${item.qty}"></td>
+    <td>
+        <input type="hidden" name="schedule[${date}][media_ids][]" id="media_input_${date}_${index}" value="${(item.media_ids || []).join(',')}">
+        <button type="button" class="btn btn-sm btn-outline-primary" onclick="openMediaModal('${date}', ${index})">
+            Select Media
+        </button>
+        <span class="badge bg-info ms-1" id="media_label_${date}_${index}">
+            ${(item.media_ids || []).length} Selected
+        </span>
+    </td>
+    <td>Rs. <span class="rate-display">${(item.rate || 0).toFixed(2)}</span></td>
+    <td>Rs. <span class="total-display">${rowTotal.toFixed(2)}</span></td>
+    <td><button type="button" class="btn btn-danger btn-sm" onclick="removeRow(${index})">×</button></td>
+`;
 
         // ATTACH EVENT LISTENERS to the new inputs
         // This ensures that the moment a user changes a value, the state is updated
@@ -394,6 +404,34 @@ function removeRow(index) {
     // Update the total budget after deletion
     updateTotalBudget();
 }
+
+let activeMediaDate = null;
+let activeMediaIndex = null;
+
+function openMediaModal(date, index) {
+    activeMediaDate = date;
+    activeMediaIndex = index;
+    
+    // Pre-check existing selections
+    const currentIds = document.getElementById(`media_input_${date}_${index}`).value.split(',');
+    document.querySelectorAll('.media-checkbox').forEach(cb => {
+        cb.checked = currentIds.includes(cb.value);
+    });
+    
+    new bootstrap.Modal(document.getElementById('mediaModal')).show();
+}
+
+function saveMediaSelection() {
+    const selected = Array.from(document.querySelectorAll('.media-checkbox:checked')).map(cb => cb.value);
+    
+    // Save to the hidden input in the table row
+    document.getElementById(`media_input_${activeMediaDate}_${activeMediaIndex}`).value = selected.join(',');
+    
+    // Update the label
+    document.getElementById(`media_label_${activeMediaDate}_${activeMediaIndex}`).innerText = `${selected.length} Selected`;
+    
+    bootstrap.Modal.getInstance(document.getElementById('mediaModal')).hide();
+}
 </script>
 
 <div class="modal fade" id="errorModal" tabindex="-1" aria-hidden="true">
@@ -425,6 +463,46 @@ function removeRow(index) {
                         <tbody id="contentModalBody"></tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="mediaModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Select Media Assets</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Select</th>
+                                <th>Ref No</th>
+                                <th>Schedule Name</th>
+                                <th>File Name</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php 
+                            $media_list = $pdo->query("SELECT * FROM media_library")->fetchAll();
+                            foreach($media_list as $m): ?>
+                            <tr>
+                                <td><input type="checkbox" class="media-checkbox" value="<?php echo $m['id']; ?>"></td>
+                                <td><span class="badge bg-secondary"><?php echo htmlspecialchars($m['reference_no']); ?></span></td>
+                                <td><?php echo htmlspecialchars($m['schedule_name']); ?></td>
+                                <td><?php echo htmlspecialchars(basename($m['file_path'])); ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveMediaSelection()">Save Selection</button>
             </div>
         </div>
     </div>
