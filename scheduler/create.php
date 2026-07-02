@@ -227,7 +227,7 @@ function renderRowsForDate(date) {
 
     scheduleData[date].forEach((item, index) => {
         const rowTotal = (item.rate || 0) * (item.qty || 0);
-        
+        const mediaIds = Array.isArray(item.media_ids) ? item.media_ids : [];
         // Create the row element instead of concatenating a string
         const tr = document.createElement('tr');
         
@@ -353,24 +353,27 @@ const getCapacity = (content_id, platform_id, placement_id, format_id) => {
 };
 
     // 1. Validate and Map
-    const newItems = scheduleData[previousDate].map(item => {
-        const cap = getCapacity(item.content_id, item.platform_id, item.placement_id, item.format_id, activeDate);
-        
-        if (!cap) {
-            hasMissingInventory = true;
-            return null;
-        }
+// 1. Validate and Map
+const newItems = scheduleData[previousDate].map(item => {
+    const cap = getCapacity(item.content_id, item.platform_id, item.placement_id, item.format_id, activeDate);
+    
+    if (!cap) {
+        hasMissingInventory = true;
+        return null;
+    }
 
-        return {
-            content_id: item.content_id,
-            content_name: item.content_name,
-            platform_id: item.platform_id,
-            placement_id: item.placement_id,
-            format_id: item.format_id,
-            qty: 1,
-            rate: 0
-        };
-    });
+    return {
+        content_id: item.content_id,
+        content_name: item.content_name,
+        platform_id: item.platform_id,
+        placement_id: item.placement_id,
+        format_id: item.format_id,
+        qty: 1,
+        rate: 0,
+        // ADD THIS LINE TO COPY THE MEDIA SELECTION
+        media_ids: item.media_ids ? [...item.media_ids] : [] 
+    };
+});
 
     // 2. Error handling
     if (hasMissingInventory) {
@@ -424,10 +427,11 @@ function openMediaModal(date, index) {
 function saveMediaSelection() {
     const selected = Array.from(document.querySelectorAll('.media-checkbox:checked')).map(cb => cb.value);
     
-    // Save to the hidden input in the table row
-    document.getElementById(`media_input_${activeMediaDate}_${activeMediaIndex}`).value = selected.join(',');
+    // SAVE TO STATE
+    scheduleData[activeMediaDate][activeMediaIndex].media_ids = selected;
     
-    // Update the label
+    // UPDATE UI
+    document.getElementById(`media_input_${activeMediaDate}_${activeMediaIndex}`).value = selected.join(',');
     document.getElementById(`media_label_${activeMediaDate}_${activeMediaIndex}`).innerText = `${selected.length} Selected`;
     
     bootstrap.Modal.getInstance(document.getElementById('mediaModal')).hide();

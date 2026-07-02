@@ -23,17 +23,18 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $_SESSION['role_id'] = $user['role_id'];
         
         // This is the key fix: Assign the string name for your header checks
-        $_SESSION['role'] = $user['role_name']; 
+$_SESSION['role'] = $user['role_name']; 
         
-        // Redirect based on role
+        // Updated Redirect based on role_id
         if ($user['role_id'] == 1) {
             header("Location: admin/settings.php");
+        } elseif ($user['role_id'] == 3) {
+            // Marketing Officer (Role ID 3) redirected to their specific upload page
+            header("Location: marketing/upload_media.php");
         } else {
+            // All other roles (like Scheduler, ID 2) go to create schedule
             header("Location: scheduler/create.php");
         }
-        exit();
-    } else {
-        header("Location: login.php?error=1");
         exit();
     }
 } else {

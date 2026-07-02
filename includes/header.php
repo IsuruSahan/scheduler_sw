@@ -33,6 +33,7 @@ if (session_status() === PHP_SESSION_NONE) session_start();
                         <li class="nav-item"><a class="nav-link" href="<?php echo BASE_URL; ?>admin/settings.php">Settings</a></li>
                         <li class="nav-item"><a class="nav-link" href="<?php echo BASE_URL; ?>admin/users.php">Users</a></li>
                         <li class="nav-item"><a class="nav-link" href="<?php echo BASE_URL; ?>admin/inventory.php">Inventory</a></li>
+                        <li class="nav-item"><a class="nav-link" href="<?php echo BASE_URL; ?>scheduler/view_assets.php">View Assets</a></li>
                     <?php endif; ?>
 
                     <?php if ((int)$_SESSION['role_id'] === 2): ?>
