@@ -22,20 +22,20 @@ $assigned_team_string = implode(', ', $assigned_teams_array);
 $stmt = $pdo->prepare("
     INSERT INTO schedules 
     (agency_id, client_id, schedule_name, reference_no, assigned_team, budget_allocated, start_date, end_date, created_by, status) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active')
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ");
 
-// 3. Corrected Execute: Ensure order matches the query above
 $stmt->execute([
     $_POST['agency_id'], 
     $_POST['client_id'], 
     $_POST['schedule_name'], 
     $_POST['reference_no'],
-    $assigned_team_string, // Use the variable you just created
-    floatval($_POST['budget']), 
+    $assigned_team_string,
+    floatval($_POST['budget_allocated']), 
     $_POST['start_date'], 
     $_POST['end_date'], 
-    $_SESSION['user_id']
+    $_SESSION['user_id'],
+    $_POST['status'] // Capture the status from JavaScript
 ]);
     
     $schedule_id = $pdo->lastInsertId();

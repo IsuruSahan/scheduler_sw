@@ -72,11 +72,22 @@ $inventory_data = $pdo->query("SELECT rate_card_id, capacity_qty, capacity_date 
         </table>
         <button type="button" class="btn btn-primary mb-3" onclick="addRow()">+ Add Platform Row</button>
 
-        <div class="col-md-4">
+
+
+
+<div class="col-md-4">
     <label class="form-label">Total Current Cost</label>
-    <div id="totalCostDisplay" class="h4 text-primary">Rs. 0.00</div>
-    <input type="hidden" name="status" id="statusField" value="Active">
+    <div id="total-generated" class="h4 text-primary">0.00</div> 
 </div>
+
+<div class="col-md-4">
+    <label class="form-label">Budget Status</label>
+    <div id="budget-warning" class="text-danger" style="display:none;">
+        Warning: Budget Exceeded!
+    </div>
+</div>
+
+<input type="hidden" name="status" id="statusField" value="Active">
         
         <button type="submit" id="submitBtn" class="btn btn-success float-end">Create Schedule</button>
     </form>
@@ -100,6 +111,7 @@ let errorModal;
 document.addEventListener("DOMContentLoaded", () => {
     contentModal = new bootstrap.Modal(document.getElementById('contentModal'));
     errorModal = new bootstrap.Modal(document.getElementById('errorModal'));
+    refreshInventoryData('all');
     
     // Populate Modal once
     const tbody = document.getElementById('contentModalBody');
@@ -111,6 +123,36 @@ document.addEventListener("DOMContentLoaded", () => {
         </tr>`;
     });
 });
+
+function updateTotalBudget() {
+
+console.log("Current total calculation running...");
+    let total = 0;
+    // Sum up all rows (assuming your total display has class .total-display)
+    document.querySelectorAll('.total-display').forEach(el => {
+        total += parseFloat(el.innerText.replace(/[^0-9.]/g, '')) || 0;
+    });
+
+    const budget = parseFloat(document.querySelector('input[name="budget_allocated"]').value) || 0;
+    const display = document.getElementById('totalCostDisplay');
+    const submitBtn = document.getElementById('submitBtn');
+    const statusField = document.getElementById('statusField');
+
+    display.innerText = 'Rs. ' + total.toLocaleString(undefined, {minimumFractionDigits: 2});
+
+    // Budget Logic: If cost > budget, trigger approval flow
+    if (total > budget) {
+        display.classList.replace('text-primary', 'text-danger');
+        submitBtn.innerText = 'Send for Marketing Approval';
+        submitBtn.classList.replace('btn-primary', 'btn-warning');
+        statusField.value = 'Pending Approval (Cost Review)';
+    } else {
+        display.classList.replace('text-danger', 'text-primary');
+        submitBtn.innerText = 'Create Schedule';
+        submitBtn.classList.replace('btn-warning', 'btn-primary');
+        statusField.value = 'Active';
+    }
+}
 
 function createOptions(arr, key, selected) {
     return arr.map(i => `<option value="${i.id}" ${i.id == selected ? 'selected' : ''}>${i[key]}</option>`).join('');
@@ -215,29 +257,47 @@ function calculateRowTotal(index) {
 }
 
 // 3. Update the total budget display
+/**
+ * 1. Global Budget Calculation
+ * Calculates across ALL dates in scheduleData
+ */
 function updateTotalBudget() {
     let total = 0;
-    // Loop through ALL dates in scheduleData to get global total
+    
+    // Sum up totals from the state object for all dates
     Object.values(scheduleData).forEach(dateItems => {
         dateItems.forEach(item => {
-            total += (item.rate * item.qty);
+            const rowTotal = (parseFloat(item.rate) || 0) * (parseInt(item.qty) || 0);
+            total += rowTotal;
         });
     });
     
     const budget = parseFloat(document.getElementById('budget_input').value || 0);
-    document.getElementById('total-generated').innerText = total.toFixed(2);
-    
+    const totalDisplay = document.getElementById('total-generated');
     const warning = document.getElementById('budget-warning');
-    warning.style.display = (total > budget) ? 'block' : 'none';
+    const submitBtn = document.getElementById('submitBtn'); // Ensure this ID is on your submit button
+    const statusField = document.getElementById('statusField'); // Ensure this ID is on your hidden status input
+
+    // Update UI display
+    totalDisplay.innerText = total.toFixed(2);
+    
+    // Toggle Warning & Update Button Status
+    if (total > budget) {
+        warning.style.display = 'block';
+        submitBtn.innerText = 'Send for Marketing Approval';
+        submitBtn.classList.replace('btn-primary', 'btn-warning');
+        statusField.value = 'Pending Approval (Cost Review)';
+    } else {
+        warning.style.display = 'none';
+        submitBtn.innerText = 'Create Schedule';
+        submitBtn.classList.replace('btn-warning', 'btn-primary');
+        statusField.value = 'Active';
+    }
 }
 
-function updateScheduleState(index, key, value) {
-    scheduleData[activeDate][index][key] = value;
-    // Recalculate cost whenever a field changes
-    const row = document.querySelectorAll('#items-body tr')[index];
-    calculateCost(row, index);
-}
-
+/**
+ * 2. Render Rows & Attach Real-Time Listeners
+ */
 function renderRowsForDate(date) {
     const tbody = document.getElementById('items-body');
     tbody.innerHTML = '';
@@ -245,52 +305,67 @@ function renderRowsForDate(date) {
     if (!scheduleData[date]) return;
 
     scheduleData[date].forEach((item, index) => {
-        const rowTotal = (item.rate || 0) * (item.qty || 0);
-        const mediaIds = Array.isArray(item.media_ids) ? item.media_ids : [];
-        // Create the row element instead of concatenating a string
+        const rowTotal = (parseFloat(item.rate) || 0) * (parseInt(item.qty) || 0);
         const tr = document.createElement('tr');
         
-tr.innerHTML = `
-    <td>
-        <input type="hidden" name="schedule[${date}][content_id][]" value="${item.content_id}">
-        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openContentModal(${index})">
-            ${item.content_name || 'Select Program'}
-        </button>
-    </td>
-    <td><select name="schedule[${date}][platform_id][]" class="form-select">${createOptions(allPlatforms, 'platform_name', item.platform_id)}</select></td>
-    <td><select name="schedule[${date}][placement_id][]" class="form-select">${createOptions(allPlacements, 'placement_name', item.placement_id)}</select></td>
-    <td><select name="schedule[${date}][format_id][]" class="form-select">${createOptions(allFormats, 'format_name', item.format_id)}</select></td>
-    <td><input type="number" name="schedule[${date}][quantity][]" class="form-control" value="${item.qty}"></td>
-    <td>
-        <input type="hidden" name="schedule[${date}][media_ids][]" id="media_input_${date}_${index}" value="${(item.media_ids || []).join(',')}">
-        <button type="button" class="btn btn-sm btn-outline-primary" onclick="openMediaModal('${date}', ${index})">
-            Select Media
-        </button>
-        <span class="badge bg-info ms-1" id="media_label_${date}_${index}">
-            ${(item.media_ids || []).length} Selected
-        </span>
-    </td>
-    <td>Rs. <span class="rate-display">${(item.rate || 0).toFixed(2)}</span></td>
-    <td>Rs. <span class="total-display">${rowTotal.toFixed(2)}</span></td>
-    <td><button type="button" class="btn btn-danger btn-sm" onclick="removeRow(${index})">×</button></td>
-`;
+        tr.innerHTML = `
+            <td>
+                <input type="hidden" name="schedule[${date}][content_id][]" value="${item.content_id}">
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openContentModal(${index})">
+                    ${item.content_name || 'Select Program'}
+                </button>
+            </td>
+            <td><select name="schedule[${date}][platform_id][]" class="form-select">${createOptions(allPlatforms, 'platform_name', item.platform_id)}</select></td>
+            <td><select name="schedule[${date}][placement_id][]" class="form-select">${createOptions(allPlacements, 'placement_name', item.placement_id)}</select></td>
+            <td><select name="schedule[${date}][format_id][]" class="form-select">${createOptions(allFormats, 'format_name', item.format_id)}</select></td>
+            <td><input type="number" name="schedule[${date}][quantity][]" class="form-control" value="${item.qty || 1}"></td>
+            <td>
+                <input type="hidden" name="schedule[${date}][media_ids][]" id="media_input_${date}_${index}" value="${(item.media_ids || []).join(',')}">
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="openMediaModal('${date}', ${index})">Select Media</button>
+                <span class="badge bg-info ms-1" id="media_label_${date}_${index}">${(item.media_ids || []).length} Selected</span>
+            </td>
+            <td>Rs. <span class="rate-display">${(parseFloat(item.rate) || 0).toFixed(2)}</span></td>
+            <td>Rs. <span class="total-display">${rowTotal.toFixed(2)}</span></td>
+            <td><button type="button" class="btn btn-danger btn-sm" onclick="removeRow(${index})">×</button></td>
+        `;
 
-        // ATTACH EVENT LISTENERS to the new inputs
-        // This ensures that the moment a user changes a value, the state is updated
-        tr.querySelectorAll('select, input').forEach(el => {
-            el.addEventListener('change', (e) => {
-                const key = e.target.name.split('[')[2].replace(']', ''); 
-                // e.g., "schedule[date][platform_id][]" -> "platform_id"
-                scheduleData[date][index][key] = e.target.value;
-                calculateCost(tr, index);
-            });
-        });
+        // Attach event listeners to update state and trigger budget calculation
+tr.querySelectorAll('select, input').forEach(el => {
+    el.addEventListener('change', (e) => {
+        const match = e.target.name.match(/\[(\w+)\]\[\]$/);
+        
+        if (match) {
+            const key = match[1]; // Captured field name (e.g., "platform_id")
+            
+            // 1. Update the local state
+            scheduleData[date][index][key] = e.target.value;
+            
+            // 2. Recalculate row cost (Synchronous call)
+calculateCost(tr, index);
+        }
+    });
+});
 
         tbody.appendChild(tr);
     });
     updateTotalBudget();
 }
 
+let globalUsageData = {};
+
+async function refreshInventoryData(date) {
+    try {
+        const response = await fetch(`../admin/get_usage.php?date=${date}`);
+        globalUsageData = await response.json();
+    } catch (e) {
+        console.error("Failed to load inventory:", e);
+    }
+}
+
+// Call this once when the date changes or page loads
+// await refreshInventoryData(activeDate);
+
+// FIND THIS FUNCTION AND REPLACE IT ENTIRELY
 async function calculateCost(row, index) {
     const platform = row.querySelector('select[name*="platform_id"]').value;
     const placement = row.querySelector('select[name*="placement_id"]').value;
@@ -344,7 +419,6 @@ async function calculateCost(row, index) {
         console.error("Inventory check failed:", error);
     }
 }
-
 function copyPreviousDate() {
     if (!activeDate) return alert("Select a date first!");
 
