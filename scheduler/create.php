@@ -29,6 +29,19 @@ $inventory_data = $pdo->query("SELECT rate_card_id, capacity_qty, capacity_date 
                 <div class="col-md-4"><label class="form-label">Total Budget (Rs.)</label><input type="number" name="budget" id="budget_input" class="form-control" required></div>
                 <div class="col-md-4"><label class="form-label">Start Date</label><input type="date" name="start_date" id="start_date" class="form-control" onchange="initDateRange()" required></div>
                 <div class="col-md-4"><label class="form-label">End Date</label><input type="date" name="end_date" id="end_date" class="form-control" onchange="initDateRange()" required></div>
+                <div class="col-md-4">
+    <label class="form-label">Assigned Team(s)</label>
+    <div class="border rounded p-2">
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="assigned_team[]" value="Content Editor Team" id="team1">
+            <label class="form-check-label" for="team1">Content Editor Team</label>
+        </div>
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="assigned_team[]" value="News Team" id="team2">
+            <label class="form-check-label" for="team2">News Team</label>
+        </div>
+    </div>
+</div>
             </div>
         </div>
 
@@ -58,8 +71,14 @@ $inventory_data = $pdo->query("SELECT rate_card_id, capacity_qty, capacity_date 
             <tbody id="items-body"></tbody>
         </table>
         <button type="button" class="btn btn-primary mb-3" onclick="addRow()">+ Add Platform Row</button>
+
+        <div class="col-md-4">
+    <label class="form-label">Total Current Cost</label>
+    <div id="totalCostDisplay" class="h4 text-primary">Rs. 0.00</div>
+    <input type="hidden" name="status" id="statusField" value="Active">
+</div>
         
-        <button type="submit" class="btn btn-success float-end">Create Schedule</button>
+        <button type="submit" id="submitBtn" class="btn btn-success float-end">Create Schedule</button>
     </form>
 </div>
 

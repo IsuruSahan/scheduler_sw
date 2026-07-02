@@ -14,24 +14,29 @@ try {
 
     // 1. Insert Schedule Header
     // Capture assigned teams or default to 'Content Editor Team'
-    $assigned_teams = isset($_POST['assigned_team']) ? implode(', ', $_POST['assigned_team']) : 'Content Editor Team';
-    
-    $stmt = $pdo->prepare("
-        INSERT INTO schedules (agency_id, client_id, schedule_name, reference_no, assigned_team, budget_allocated, start_date, end_date, created_by, status) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active')
-    ");
-    
-    $stmt->execute([
-        $_POST['agency_id'], 
-        $_POST['client_id'], 
-        $_POST['schedule_name'], 
-        $_POST['reference_no'],
-        $assigned_teams, 
-        floatval($_POST['budget']), 
-        $_POST['start_date'], 
-        $_POST['end_date'], 
-        $_SESSION['user_id']
-    ]);
+// 1. Collect and process the team string
+$assigned_teams_array = $_POST['assigned_team'] ?? [];
+$assigned_team_string = implode(', ', $assigned_teams_array); 
+
+// 2. Corrected Query: Removed duplicate 'assigned_team' and added missing 'created_by' placeholder
+$stmt = $pdo->prepare("
+    INSERT INTO schedules 
+    (agency_id, client_id, schedule_name, reference_no, assigned_team, budget_allocated, start_date, end_date, created_by, status) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Active')
+");
+
+// 3. Corrected Execute: Ensure order matches the query above
+$stmt->execute([
+    $_POST['agency_id'], 
+    $_POST['client_id'], 
+    $_POST['schedule_name'], 
+    $_POST['reference_no'],
+    $assigned_team_string, // Use the variable you just created
+    floatval($_POST['budget']), 
+    $_POST['start_date'], 
+    $_POST['end_date'], 
+    $_SESSION['user_id']
+]);
     
     $schedule_id = $pdo->lastInsertId();
 
