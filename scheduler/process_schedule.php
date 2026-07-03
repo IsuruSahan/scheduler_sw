@@ -41,17 +41,26 @@ $stmt->execute([
     $schedule_id = $pdo->lastInsertId();
 
     // 2. Loop through nested schedule data from the POST request
-    if (!isset($_POST['schedule'])) {
+    // 2. Process the JSON data sent from the frontend
+    if (!isset($_POST['full_schedule_json'])) {
         throw new Exception("No schedule items provided in the request.");
     }
 
-    foreach ($_POST['schedule'] as $date => $items) {
-        // Iterate through content items scheduled for this specific date
-        foreach ($items['content_id'] as $idx => $cid) {
-            $qty = (int)$items['quantity'][$idx];
-            $pid = $items['platform_id'][$idx];
-            $plid = $items['placement_id'][$idx];
-            $fid = $items['format_id'][$idx];
+    $scheduleData = json_decode($_POST['full_schedule_json'], true);
+
+    if (!$scheduleData) {
+        throw new Exception("Failed to decode schedule data.");
+    }
+
+    foreach ($scheduleData as $date => $items) {
+        // $items is now the array of rows for this date
+        foreach ($items as $item) {
+            $cid  = $item['content_id'];
+            $qty  = (int)($item['qty'] ?? 1);
+            $pid  = $item['platform_id'];
+            $plid = $item['placement_id'];
+            $fid  = $item['format_id'];
+            $media_ids = $item['media_ids'] ?? [];
 
             // A. Get Rate Card ID and Rate
             $stmt = $pdo->prepare("SELECT id, rate FROM rate_cards WHERE content_item_id = ? AND platform_id = ? AND placement_id = ? AND media_format_id = ?");
@@ -63,37 +72,32 @@ $stmt->execute([
             }
 
             // B. Validate Global Daily Capacity
-            // 1. Fetch the Global Capacity limit for this specific Rate Card
             $stmt = $pdo->prepare("SELECT capacity_qty FROM inventory_daily_capacity WHERE rate_card_id = ?");
             $stmt->execute([$rc['id']]);
             $limit = (int)$stmt->fetchColumn(); 
             
-            // 2. Dynamically calculate existing usage for this specific date
             $stmt = $pdo->prepare("SELECT SUM(quantity) FROM schedule_items WHERE rate_card_id = ? AND scheduled_date = ?");
             $stmt->execute([$rc['id'], $date]);
             $already_used = (int)$stmt->fetchColumn();
             
-            // 3. Validation Logic: (Existing Bookings + Current Request) vs Global Capacity
             if (($already_used + $qty) > $limit) {
                 throw new Exception("Inventory exhausted on $date. Capacity: $limit, Currently Used: $already_used, Requested: $qty.");
             }
 
             // C. Insert Schedule Item
-            // We store the rate_card_id here to make the inventory dashboard lookups efficient
             $stmt = $pdo->prepare("INSERT INTO schedule_items (schedule_id, content_item_id, platform_id, placement_id, quantity, cost, scheduled_date, rate_card_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([$schedule_id, $cid, $pid, $plid, $qty, ($rc['rate'] * $qty), $date, $rc['id']]);
             $schedule_item_id = $pdo->lastInsertId();
 
-            if (!empty($items['media_ids'][$idx])) {
-                $media_ids = explode(',', $items['media_ids'][$idx]);
+            // D. Insert Media Links
+            if (!empty($media_ids)) {
                 $stmt_media = $pdo->prepare("INSERT INTO schedule_item_media (schedule_item_id, media_id) VALUES (?, ?)");
                 foreach ($media_ids as $mid) {
-                    if (!empty($mid)) { // Ensure ID is not empty
+                    if (!empty($mid)) {
                         $stmt_media->execute([$schedule_item_id, $mid]);
                     }
                 }
             }
-            
         }
     }
 

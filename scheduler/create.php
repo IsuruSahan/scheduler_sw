@@ -20,6 +20,7 @@ $inventory_data = $pdo->query("SELECT rate_card_id, capacity_qty, capacity_date 
     <h3 class="mb-4">Create New Schedule</h3>
     
     <form action="process_schedule.php" method="POST" enctype="multipart/form-data" id="scheduleForm">
+        <input type="hidden" name="full_schedule_json" id="full_schedule_json">
         <div class="card p-4 mb-4 shadow-sm border-0">
             <div class="row g-3">
                 <div class="col-md-6"><label class="form-label">Agency</label><select name="agency_id" id="agency_id" class="form-select" onchange="updateClients()" required><option value="">Select Agency</option><?php foreach($agencies as $a): ?><option value="<?php echo $a['id']; ?>"><?php echo htmlspecialchars($a['agency_name']); ?></option><?php endforeach; ?></select></div>
@@ -529,6 +530,11 @@ function saveMediaSelection() {
     
     bootstrap.Modal.getInstance(document.getElementById('mediaModal')).hide();
 }
+
+document.getElementById('scheduleForm').addEventListener('submit', function(e) {
+    // Before the form sends, dump all your data into the hidden field
+    document.getElementById('full_schedule_json').value = JSON.stringify(scheduleData);
+});
 </script>
 
 <div class="modal fade" id="errorModal" tabindex="-1" aria-hidden="true">
