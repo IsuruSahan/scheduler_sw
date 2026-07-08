@@ -462,7 +462,7 @@ const newItems = scheduleData[previousDate].map(item => {
         platform_id: item.platform_id,
         placement_id: item.placement_id,
         format_id: item.format_id,
-        qty: 1,
+        qty: item.qty,
         rate: 0,
         // ADD THIS LINE TO COPY THE MEDIA SELECTION
         media_ids: item.media_ids ? [...item.media_ids] : [] 
@@ -580,23 +580,30 @@ document.getElementById('scheduleForm').addEventListener('submit', function(e) {
             <div class="modal-body">
                 <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
                     <table class="table table-hover">
-                        <thead>
+                        <thead class="table-light sticky-top">
                             <tr>
                                 <th>Select</th>
-                                <th>Ref No</th>
                                 <th>Schedule Name</th>
                                 <th>File Name</th>
+                                <th>Description</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php 
-                            $media_list = $pdo->query("SELECT * FROM media_library")->fetchAll();
+                            // Fetching data from your media_library table
+                            $media_list = $pdo->query("SELECT * FROM media_library ORDER BY uploaded_at DESC")->fetchAll();
                             foreach($media_list as $m): ?>
                             <tr>
-                                <td><input type="checkbox" class="media-checkbox" value="<?php echo $m['id']; ?>"></td>
-                                <td><span class="badge bg-secondary"><?php echo htmlspecialchars($m['reference_no']); ?></span></td>
-                                <td><?php echo htmlspecialchars($m['schedule_name']); ?></td>
-                                <td><?php echo htmlspecialchars(basename($m['file_path'])); ?></td>
+                                <td>
+                                    <input type="checkbox" class="media-checkbox" value="<?php echo $m['id']; ?>">
+                                </td>
+                                <td><?php echo htmlspecialchars($m['schedule_name'] ?? 'N/A'); ?></td>
+                                <td>
+                                    <a href="<?php echo htmlspecialchars($m['file_path']); ?>" target="_blank">
+                                        <?php echo htmlspecialchars(basename($m['file_path'])); ?>
+                                    </a>
+                                </td>
+                                <td><?php echo htmlspecialchars($m['description'] ?? '-'); ?></td>
                             </tr>
                             <?php endforeach; ?>
                         </tbody>

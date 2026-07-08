@@ -346,7 +346,6 @@ include '../includes/header.php';
                         <td>Rs. <?php echo number_format($s['budget_allocated'], 2); ?></td>
                         <td class="text-center">
                             <a href="details.php?id=<?php echo $s['id']; ?>" class="btn btn-sm btn-info text-white">Manage</a>
-                            <a href="edit.php?id=<?php echo $s['id']; ?>" class="btn btn-sm btn-outline-primary">Edit</a>
                             <button class="btn btn-sm btn-outline-danger" onclick="prepareDelete(<?php echo $s['id']; ?>, this)">Delete</button>
                         </td>
                     </tr>

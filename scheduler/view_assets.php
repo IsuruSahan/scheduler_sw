@@ -55,7 +55,7 @@ foreach ($assets as $a) {
                     </td>
 
                     <td>
-                        <button class="btn btn-sm btn-primary" onclick='showModal(<?php echo json_encode($row['media']); ?>, "Media Assets")'>
+                        <button class="btn btn-sm btn-info" onclick='showModal(<?php echo json_encode($row['media']); ?>, "Media Assets")'>
                             View All Media (<?php echo count($row['media']); ?>)
                         </button>
                     </td>

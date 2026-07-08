@@ -2,7 +2,7 @@
 require_once __DIR__ . '/../config/config.php';
 require_once __DIR__ . '/../includes/auth.php';
 
-// 1. Handle Delete Action (Must be at the very top)
+// 1. Handle Delete Action
 if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])) {
     $stmt = $pdo->prepare("SELECT file_path FROM media_library WHERE id = ?");
     $stmt->execute([$_GET['id']]);
@@ -12,7 +12,8 @@ if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])
         unlink($file['file_path']);
     }
     
-    $pdo->prepare("DELETE FROM media_library WHERE id = ?")->execute([$_GET['id']]);
+    $stmt = $pdo->prepare("DELETE FROM media_library WHERE id = ?");
+    $stmt->execute([$_GET['id']]);
     header("Location: media_library.php");
     exit();
 }
@@ -25,18 +26,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['media_file'])) {
     $file_path = $target_dir . time() . "_" . basename($_FILES["media_file"]["name"]);
     
     if (move_uploaded_file($_FILES["media_file"]["tmp_name"], $file_path)) {
+        // We explicitly pass NULL for reference_no and other unused fields
         $stmt = $pdo->prepare("
             INSERT INTO media_library 
             (reference_no, schedule_name, file_path, file_type, description, agency_name, client_name) 
-            VALUES (?, ?, ?, 'media', ?, ?, ?)
+            VALUES (NULL, ?, ?, 'media', ?, NULL, NULL)
         ");
         $stmt->execute([
-            $_POST['reference_no'] ?? null,
             $_POST['schedule_name'] ?? null,
             $file_path,
-            $_POST['description'] ?? null,
-            $_POST['agency_name'] ?? null,
-            $_POST['client_name'] ?? null
+            $_POST['description'] ?? null
         ]);
         header("Location: media_library.php");
         exit();
@@ -57,7 +56,6 @@ $stmt->bindValue(2, $offset, PDO::PARAM_INT);
 $stmt->execute();
 $media_list = $stmt->fetchAll();
 
-// 4. Output
 include '../includes/header.php'; 
 ?>
 
@@ -68,11 +66,11 @@ include '../includes/header.php';
         <div class="card-body">
             <form method="POST" enctype="multipart/form-data">
                 <div class="row g-2">
-                    <div class="col-md-3"><input type="file" name="media_file" class="form-control" required></div>
-                    <div class="col-md-2"><input type="text" name="schedule_name" placeholder="Schedule Name" class="form-control"></div>
+                    <div class="col-md-4"><input type="file" name="media_file" class="form-control" required></div>
+                    <div class="col-md-3"><input type="text" name="schedule_name" placeholder="Schedule Name" class="form-control"></div>
                     <div class="col-md-3"><input type="text" name="description" placeholder="Description" class="form-control"></div>
+                    <div class="col-md-2"><button type="submit" class="btn btn-primary w-100">Upload Media</button></div>
                 </div>
-                <button type="submit" class="btn btn-primary mt-3">Upload Media</button>
             </form>
         </div>
     </div>
@@ -80,15 +78,14 @@ include '../includes/header.php';
     <div class="card shadow-sm">
         <table class="table table-hover align-middle mb-0">
             <thead class="table-light">
-                <tr><th>File</th><th>Schedule</th><th>Ref No</th><th>Description</th><th>Action</th></tr>
+                <tr><th>File</th><th>Schedule</th><th>Description</th><th>Action</th></tr>
             </thead>
             <tbody>
                 <?php foreach ($media_list as $m): ?>
                 <tr>
                     <td><a href="<?php echo htmlspecialchars($m['file_path']); ?>" target="_blank"><?php echo htmlspecialchars(basename($m['file_path'])); ?></a></td>
-                    <td><?php echo htmlspecialchars($m['schedule_name']); ?></td>
-                    <td><?php echo htmlspecialchars($m['reference_no']); ?></td>
-                    <td><?php echo htmlspecialchars($m['description']); ?></td>
+                    <td><?php echo htmlspecialchars($m['schedule_name'] ?? '-'); ?></td>
+                    <td><?php echo htmlspecialchars($m['description'] ?? '-'); ?></td>
                     <td><a href="?action=delete&id=<?php echo $m['id']; ?>" class="btn btn-danger btn-sm" onclick="return confirm('Delete this file?')">Delete</a></td>
                 </tr>
                 <?php endforeach; ?>

@@ -52,9 +52,7 @@ $items_stmt = $pdo->prepare("
     JOIN content_items ci ON si.content_item_id = ci.id 
     JOIN platforms p ON si.platform_id = p.id 
     JOIN ad_placements ap ON si.placement_id = ap.id 
-    JOIN rate_cards rc ON si.content_item_id = rc.content_item_id 
-          AND si.platform_id = rc.platform_id 
-          AND si.placement_id = rc.placement_id
+    JOIN rate_cards rc ON si.rate_card_id = rc.id -- Optimization: Join via PK
     JOIN media_formats mf ON rc.media_format_id = mf.id
     LEFT JOIN media_attachments ma ON si.id = ma.schedule_item_id
     WHERE si.schedule_id = ?
@@ -306,15 +304,17 @@ $query = "SELECT al.*, u.email as user_email, r.role_name
 <div class="modal fade" id="reportModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header bg-info text-white"><h5 class="modal-title">Schedule Finalization Report</h5></div><div class="modal-body" id="reportContent"></div><div class="modal-footer"><button type="button" class="btn btn-primary" onclick="location.reload()">Close & Refresh</button></div></div></div></div>
 
 <div class="modal fade" id="extendModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <form id="extendForm" class="modal-content">
-            <input type="hidden" name="id" value="<?php echo $id; ?>">
+    <div class="modal-dialog modal-xl"> <div class="modal-content">
             <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title">Extend/Reduce Schedule</h5>
+                <h5 class="modal-title">Extend Schedule Builder</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-<div class="alert alert-info py-2">
-    <small>Days already run: <strong><?php echo $schedule['days_run'] ?? 0; ?></strong> days.</small>
+                <iframe src="create_extension.php?schedule_id=<?php echo $id; ?>" 
+                        style="width:100%; height:600px; border:none;"></iframe>
+            </div>
+        </div>
+    </div>
 </div>
                 
                 <label class="form-label">New End Date:</label>
